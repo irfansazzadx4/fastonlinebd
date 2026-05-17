@@ -1,16 +1,13 @@
 /**
  * NID Service Bot - WhatsApp Cloud API Version
- * Advanced Automation: Dynamic PHP Session Login, Double-Layer Balance Control & MongoDB History
+ * Optimized with External Puppeteer Rendering Service & MongoDB History
  */
 
 require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
 const FormData = require("form-data");
-const puppeteer = require("puppeteer");
 const { MongoClient } = require("mongodb");
 
 // ========== CONFIGURATION ==========
@@ -18,101 +15,93 @@ const CONFIG = {
   PORT: process.env.PORT || 3000,
   ADMIN_PASS: process.env.ADMIN_PASS || "admin123",
 
-  // WhatsApp Cloud API
+  // WhatsApp Cloud API Configuration
   WA_TOKEN: process.env.WHATSAPP_TOKEN,
   WA_PHONE_ID: process.env.WHATSAPP_PHONE_ID,
   WA_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN || "myVerifyToken123",
   WA_API_VERSION: "v21.0",
 
-  // আপনার ওয়েবসাইটের ক্রেডেনশিয়ালস
+  // আপনার মেইন ওয়েবসাইটের ক্রেডেনশিয়ালস
   PHP_SITE_BASE_URL: process.env.PHP_SITE_BASE_URL || "https://my-gov-bd.site",
   PHP_BOT_EMAIL: "irfanbot@gmail.com",
   PHP_BOT_PASS: "p@@ss: irfan2002",
 
-  // MongoDB Connection URI
+  // 🌐 আপনার এক্সটার্নাল Railway Puppeteer সার্ভার ইউআরএল
+  EXTERNAL_PUPPETEER_URL: "https://pupeeter-production-2b39.up.railway.app/pdf",
+
+  // MongoDB Connection String
   MONGO_URI: process.env.MONGO_URI || "mongodb+srv://sazzadpc4_db_user:Xr53oHTfLujIKDlw@cluster0.mongodb.net/?retryWrites=true&w=majority",
 };
 
-// Global Variables for State
+// Global DB Instances
 let db, usersColl, statsColl, settingsColl, historyColl;
-let phpSessionCookies = ""; // সাইটের লাইভ সেশন কুকি স্টোর করার জন্য
+let phpSessionCookies = ""; // সাইটের লাইভ সেশন কুকি জমা রাখার ভ্যারিয়েবল
 
-// ========== MONGODB SETUP ==========
+// ========== MONGODB CONNECTION SETUP ==========
 async function connectMongoDB() {
   try {
     const client = new MongoClient(CONFIG.MONGO_URI);
     await client.connect();
     db = client.db("nid_whatsapp_bot");
     
-    // কালেকশনস ডিফাইন
     usersColl = db.collection("users");
     statsColl = db.collection("stats");
     settingsColl = db.collection("settings");
-    historyColl = db.collection("history"); // আলাদা ইউজার হিস্ট্রি ট্র্যাকিংয়ের জন্য
+    historyColl = db.collection("history"); // ইউজারদের আলাদা কাজের হিস্ট্রি ট্র্যাকিং কালেকশন
 
-    console.log("✅ MongoDB Connected & Database Initialized.");
+    console.log("✅ MongoDB Database Connected Successfully.");
     
-    // ডিফল্ট সেটিংস চেক বা তৈরি
+    // ডিফল্ট সেটিং তৈরি (যদি ডাটাবেজে না থাকে)
     const settings = await settingsColl.findOne({ _id: "bot_settings" });
     if (!settings) {
-      await settingsColl.insertOne({ _id: "bot_settings", cardPrice: 10 }); // ডিফল্ট ১০ টাকা রেট
+      await settingsColl.insertOne({ _id: "bot_settings", cardPrice: 10 }); // ডিফল্ট কার্ড প্রাইস ১০ টাকা
     }
   } catch (e) {
-    console.error("❌ MongoDB Connection Failed! Bot will retry or exit.", e.message);
+    console.error("❌ MongoDB Connection Failed!", e.message);
     process.exit(1);
   }
 }
 
-// ========== AUTOMATED WEBSITE LOGIN ==========
-// এই ফাংশনটি আপনার ওয়েবসাইটের লগইন পেজে গিয়ে রিয়েল সেশন কুকি কালেক্ট করে নিয়ে আসবে
+// ========== AUTOMATED WEBSITE SESSION LOGIN ==========
 async function loginToPhpSite() {
   try {
     console.log("🔐 Website-এ লগইন সেশন তৈরি করার চেষ্টা করা হচ্ছে...");
     const params = new URLSearchParams();
-    
-    // আপনার সাইটের লগইন ফর্মের নাম অনুযায়ী ইনপুট নেম (সাধারণত email/username এবং password হয়)
     params.append("email", CONFIG.PHP_BOT_EMAIL); 
     params.append("password", CONFIG.PHP_BOT_PASS);
-    params.append("login", "submit"); // যদি সাবমিট বাটন ভ্যালু থাকে
+    params.append("login", "submit"); 
 
     const response = await axios.post(`${CONFIG.PHP_SITE_BASE_URL}/index.php`, params.toString(), {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      maxRedirects: 0, // রিডাইরেক্ট হওয়া আটকে কুকি নেওয়া
+      maxRedirects: 0, 
       validateStatus: (status) => status >= 200 && status < 400
     });
 
-    // রেসপন্স হেডার থেকে PHPSESSID এবং user_id কুকি ফিল্টার করা
+    // রেসপন্স হেডার থেকে কুকি ডেটা ফিল্টার করা
     const cookies = response.headers["set-cookie"];
     if (cookies && cookies.length > 0) {
       phpSessionCookies = cookies.map(c => c.split(";")[0]).join("; ");
-      console.log("✅ লগইন সফল! নতুন সেশন কুকি জেনারেট হয়েছে:", phpSessionCookies);
+      console.log("✅ লগইন সফল! নতুন সেশন কুকি অ্যাক্টিভ হয়েছে:", phpSessionCookies);
       return true;
     }
     
-    // যদি রিডাইরেক্ট না হয়ে ডিরেক্ট সাকসেস দেয় (যেমন AJAX লগইন)
-    if (response.data) {
-      const cookies = response.headers["set-cookie"];
-      if(cookies) {
-         phpSessionCookies = cookies.map(c => c.split(";")[0]).join("; ");
-         return true;
-      }
+    if (response.headers && response.headers["set-cookie"]) {
+       phpSessionCookies = response.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
+       return true;
     }
-    
-    console.error("❌ লগইন রেসপন্সে কোনো কুকি পাওয়া যায়নি।");
     return false;
   } catch (error) {
-    // কিছু ক্ষেত্রে ৩0২ রিডাইরেক্ট হেডার থেকে কুকি পাওয়া যায়
     if (error.response && error.response.headers["set-cookie"]) {
       phpSessionCookies = error.response.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
-      console.log("✅ লগইন সফল (Redirect-Based Cookie Captured).");
+      console.log("✅ লগইন সফল (Session Cookie Captured via 302 Redirect).");
       return true;
     }
-    console.error("❌ ওয়েবসাইট লগইন এপিআই ফেইল হয়েছে:", error.message);
+    console.error("❌ ওয়েবসাইট লগইন এপিআই ব্যর্থ হয়েছে:", error.message);
     return false;
   }
 }
 
-// ========== STRICT USER & BALANCE MANAGEMENT ==========
+// ========== STRICT USER CONTROL & DETAILS LOGGING ==========
 function normalizeNumber(num) {
   let n = String(num).replace(/\D/g, "");
   if (n.startsWith("0")) n = "880" + n.slice(1);
@@ -135,7 +124,7 @@ async function getCardPrice() {
   return settings ? settings.cardPrice : 0;
 }
 
-// আলাদা ইউজার হিস্ট্রি ডাটাবেজে স্টোর করার ফাংশন
+// ইউজারদের প্রতিটি কাজের আলাদা আলাদা হিস্ট্রি রাখার মূল ফাংশন
 async function logToHistory(number, nid, dob, status, charge, balanceAfter, remarks) {
   await historyColl.insertOne({
     number: normalizeNumber(number),
@@ -185,13 +174,13 @@ async function sendDocument(to, mediaId, filename, caption) {
   } catch (e) { console.error("sendDocument error:", e.response?.data || e.message); }
 }
 
-// ========== LIVE SERVER SEARCH & PUPPETEER ENGINE ==========
+// ========== WEB AUTOMATION (SERVER SEARCH & EXTERNAL RENDER) ==========
 
-// ১. সাইটের insert_un_server_24.php ফাইলে সার্চ এক্সিকিউট করা
+// ১. সাইটের insert_un_server_24.php ফাইলে ডেটা পাঠানো ও এরর চেক করা
 async function searchNIDOnServer(nid, dob) {
   try {
     if (!phpSessionCookies) {
-      await loginToPhpSite(); // যদি কুকি না থাকে, আগে লগইন করবে
+      await loginToPhpSite(); 
     }
 
     const params = new URLSearchParams();
@@ -201,75 +190,50 @@ async function searchNIDOnServer(nid, dob) {
     const response = await axios.post(`${CONFIG.PHP_SITE_BASE_URL}/insert_un_server_24.php`, params.toString(), {
       headers: { 
         "Content-Type": "application/x-www-form-urlencoded",
-        "Cookie": phpSessionCookies // সংগৃহীত রিয়েল এডমিন/বট সেশন কুকি
+        "Cookie": phpSessionCookies 
       },
       timeout: 50000
     });
 
     return response.data;
   } catch (error) {
-    console.error("Axios Search Error:", error.message);
-    // যদি সেশন মারা যায় (Session Expired), পুনরায় লগইন করে আরেকবার ট্রাই করবে
+    console.error("Axios Web Search Error:", error.message);
     if (error.response && (error.response.status === 401 || error.response.status === 302)) {
       console.log("🔄 সেশন এক্সপায়ার হয়েছে। রি-লগইন করা হচ্ছে...");
       const loginOk = await loginToPhpSite();
-      if (loginOk) return await searchNIDOnServer(nid, dob); // রি-ট্রাই
+      if (loginOk) return await searchNIDOnServer(nid, dob); 
     }
-    return { status: "error", message: "ওয়েবসাইট সার্ভারে সংযোগ করা সম্ভব হচ্ছে না।" };
+    return { status: "error", message: "ওয়েবসাইট ব্যাকএন্ড সার্ভারে কানেক্ট করা যাচ্ছে না।" };
   }
 }
 
-// ২. Puppeteer দিয়ে লাইভ পেজ ভিজিট এবং PDF রেন্ডার
-async function renderNIDToPdf(nid, dob) {
+// 🌐 ২. আপনার এক্সটার্নাল Railway Puppeteer সার্ভারে রিকোয়েস্ট পাঠানোর সম্পূর্ণ নতুন ফাংশন
+async function renderNIDViaExternalService(nid, dob) {
   const targetUrl = `${CONFIG.PHP_SITE_BASE_URL}/server_download_v2_24.php?nid=${nid}&id=${dob}`;
-  
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--font-render-hinting=none"
-    ]
-  });
+  console.log(`📡 External Puppeteer-এ রিকোয়েস্ট পাঠানো হচ্ছে: ${targetUrl}`);
 
   try {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1241, height: 1755, deviceScaleFactor: 2 });
-
-    // Puppeteer ব্রাউজারে সেশন কুকি ইনজেক্ট করা যাতে ডাউনলোড পেজ সরাসরি ওপেন হয়
-    if (phpSessionCookies) {
-      const cookieArray = phpSessionCookies.split(";").map(pair => {
-        const [name, value] = pair.trim().split("=");
-        return {
-          name: name,
-          value: value,
-          domain: new URL(CONFIG.PHP_SITE_BASE_URL).hostname,
-          path: "/"
-        };
-      });
-      for (const cookie of cookieArray) {
-        if(cookie.name && cookie.value) await page.setCookie(cookie);
+    // এক্সটার্নাল Puppeteer API যে ফরম্যাটে ডেটা নেয় (টপিক্যালি URL এবং Cookies পে-লোড)
+    const response = await axios.post(CONFIG.EXTERNAL_PUPPETEER_URL, {
+      url: targetUrl,
+      cookies: phpSessionCookies, // সেশন কুকি পাস করা হচ্ছে যাতে এক্সটার্নাল রেন্ডারার ফাইলটি রিড করতে পারে
+      options: {
+        format: "A4",
+        printBackground: true
       }
-    }
-
-    await page.goto(targetUrl, { waitUntil: "networkidle0", timeout: 60000 });
-    await new Promise(resolve => setTimeout(resolve, 1500)); // ফন্ট লোড সেফটি বাফার
-
-    const pdfBuffer = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
-      preferCSSPageSize: true
+    }, {
+      responseType: "arraybuffer", // PDF বাইনারি ডেটা বাফার হিসেবে রিসিভ করার জন্য
+      timeout: 60000
     });
 
-    return pdfBuffer;
-  } finally {
-    await browser.close();
+    return Buffer.from(response.data);
+  } catch (error) {
+    console.error("❌ External Puppeteer Renderer Server Error:", error.message);
+    throw new Error("এক্সটার্নাল পিডিএফ রেন্ডারিং ইঞ্জিন সাড়া দিচ্ছে না বা ডাউন আছে।");
   }
 }
 
-// ========== WHATSAPP INCOMING MESSAGE HANDLER ==========
+// ========== WHATSAPP MESSAGES MAIN CONTROLLER ==========
 async function handleIncoming(msg) {
   const from  = msg.from;
   const msgId = msg.id;
@@ -287,7 +251,7 @@ async function handleIncoming(msg) {
       return sendText(from, `✅ আপনি authorized।\n💰 Balance: ${bal} টাকা\n💳 Card Price: ${price} টাকা`);
     }
 
-    // RegEx দিয়ে ডেটা এক্সট্রাক্ট করা
+    // RegEx Filter
     const nidRegex = /(\d{10}|\d{17})/;
     const dobRegex = /(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})/;
 
@@ -300,10 +264,10 @@ async function handleIncoming(msg) {
       const price = await getCardPrice();
       const currentBalance = await getUserBalance(from);
 
-      // 🛡️ স্তর ১: বটের লেভেলে কঠোর ব্যালেন্স চেক
+      // 🛡️ কঠোর স্তর ১: বটের ডাটাবেজে পর্যাপ্ত টাকা না থাকলে রিকোয়েস্ট ব্লক
       if (price > 0 && currentBalance < price) {
-        await logToHistory(from, hasNid[0], hasDob[0], "failed", 0, currentBalance, "Insufficient Bot Balance");
-        return sendText(from, `❌ আপনার বটের ব্যালেন্স কম! একটি কার্ডের জন্য ${price} টাকা প্রয়োজন।\nআপনার বর্তমান ব্যালেন্স: ${currentBalance} টাকা।`);
+        await logToHistory(from, hasNid[0], hasDob[0], "failed", 0, currentBalance, "Insufficient Bot Balance Locked");
+        return sendText(from, `❌ আপনার বটের ব্যালেন্স কম! একটি কার্ডের জন্য মিনিমাম ${price} টাকা প্রয়োজন।\nআপনার বর্তমান ব্যালেন্স: ${currentBalance} টাকা।`);
       }
 
       const nid = hasNid[0];
@@ -312,32 +276,33 @@ async function handleIncoming(msg) {
       await sendText(from, `🔍 NID: ${nid} সার্ভারে খোঁজা হচ্ছে... অনুগ্রহ করে একটু অপেক্ষা করুন।`);
 
       try {
-        // ধাপ ১: ওয়েবসাইট ব্যাকএন্ডে রিকোয়েস্ট দিয়ে চেক করা
+        // ধাপ ১: আপনার পিএইচপি মেইন ফাইলে ডেটা সার্চ
         const searchResult = await searchNIDOnServer(nid, dob);
         const result = typeof searchResult === "string" ? JSON.parse(searchResult) : searchResult;
 
-        // 🛑 স্তর ২: আপনার ওয়েবসাইট সার্ভার থেকে এরর রেসপন্স চেক
+        // 🛑 কঠোর স্তর ২: আপনার ওয়েবসাইট সার্ভার থেকে যেকোনো প্রকারের এরর মেসেজ আসলে তা চেক করা
         if (result.status === "error" || result.status === "failed") {
           const errMsg = result.message || "কোনো তথ্য পাওয়া যায়নি বা সার্ভার ব্যালেন্স শেষ।";
           
-          // ব্যর্থতার রেকর্ড হিস্ট্রি কালেকশনে সেভ
-          await logToHistory(from, nid, dob, "failed", 0, currentBalance, `Server Error: ${errMsg}`);
+          // ব্যর্থতার রেকর্ড আলাদা ইউজার হিস্ট্রিতে স্টোর
+          await logToHistory(from, nid, dob, "failed", 0, currentBalance, `Server Error Response: ${errMsg}`);
           
-          return sendText(from, `❌ ওয়েবসাইট সার্ভার থেকে এরর এসেছে:\n\n"${errMsg}"\n\n[অনুরোধটি বাতিল করা হয়েছে, কোনো ব্যালেন্স কাটা হয়নি]`);
+          // এক্সটার্নাল ইঞ্জিনে না পাঠিয়ে সরাসরি এই এরর মেসেজটি ইউজারকে সেন্ড করে স্টপ করা হবে
+          return sendText(from, `❌ ওয়েবসাইট সার্ভার থেকে এরর মেসেজ এসেছে:\n\n"${errMsg}"\n\n[অনুরোধটি বাতিল করা হয়েছে, কোনো ব্যালেন্স কাটা হয়নি]`);
         }
 
-        // ধাপ ২: সার্চ সফল হলেই কেবল Puppeteer দিয়ে ডাউনলোড পেজ জেনারেট করা হবে
-        await sendText(from, `📥 তথ্য পাওয়া গেছে! পিডিএফ (PDF) কপি তৈরি করা হচ্ছে...`);
-        const pdfBuffer = await renderNIDToPdf(nid, dob);
+        // ধাপ ২: সার্চ সফল হলেই কেবল এক্সটার্নাল রেলওয়ে সার্ভিস থেকে PDF জেনারেট করা হবে
+        await sendText(from, `📥 তথ্য সফলভাবে পাওয়া গেছে! এক্সটার্নাল ইঞ্জিন থেকে পিডিএফ (PDF) কপি জেনারেট হচ্ছে...`);
+        const pdfBuffer = await renderNIDViaExternalService(nid, dob);
 
-        // 💳 ব্যালেন্স ডিডাকশন (নিখুঁত ও কঠোর কাট)
+        // 💳 সফলভাবে জেনারেট হওয়ার পর বটের কঠোর ব্যালেন্স কাট
         const finalBalance = currentBalance - price;
         await usersColl.updateOne({ number: normalizeNumber(from) }, { $set: { balance: finalBalance } });
 
-        // সফল কাজের হিস্ট্রি ডাটাবেজে স্টোর
-        await logToHistory(from, nid, dob, "success", price, finalBalance, "Successfully generated and sent");
+        // সফল কাজের ডেটা হিস্ট্রি কালেকশনে ইনসার্ট
+        await logToHistory(from, nid, dob, "success", price, finalBalance, "Successfully generated via External Railway Server");
 
-        // স্ট্যাটস আপডেট
+        // কাউন্টার আপডেট
         await statsColl.updateOne(
           { _id: normalizeNumber(from) },
           { $inc: { count: 1 }, $set: { lastUsed: new Date() } },
@@ -347,14 +312,14 @@ async function handleIncoming(msg) {
         const filename = `nid-${nid}.pdf`;
         const caption  = `✅ আপনার NID সার্ভার কপি তৈরি হয়েছে!\n\n🆔 NID: ${nid}\n🎂 DOB: ${dob}\n${price > 0 ? `💰 Remaining Balance: ${finalBalance} টাকা` : ""}`;
 
-        // হোয়াটসঅ্যাপে ফাইল ডেলিভারি
+        // হোয়াটসঅ্যাপে ডেলিভারি
         const mediaId = await uploadMedia(pdfBuffer, filename, "application/pdf");
         await sendDocument(from, mediaId, filename, caption);
 
       } catch (err) {
-        console.error("Main Flow Error:", err.message);
-        await logToHistory(from, nid, dob, "failed", 0, currentBalance, `System Crash: ${err.message}`);
-        await sendText(from, `❌ ইন্টারনাল সার্ভার ক্রাশ! অনুগ্রহ করে আবার চেষ্টা করুন।\nError: ${err.message}`);
+        console.error("Main Handler Flow Error:", err.message);
+        await logToHistory(from, nid, dob, "failed", 0, currentBalance, `System Crash Error: ${err.message}`);
+        await sendText(from, `❌ ইন্টারনাল প্রসেসিং ক্রাশ! অনুগ্রহ করে আবার চেষ্টা করুন।\nError: ${err.message}`);
       }
       return;
     }
@@ -367,7 +332,7 @@ async function handleIncoming(msg) {
   }
 }
 
-// ========== EXPRESS SERVER & WEBHOOKS ==========
+// ========== EXPRESS SERVER METHOD ==========
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
@@ -394,7 +359,7 @@ app.post("/webhook", async (req, res) => {
   } catch (e) { console.error("Webhook endpoint error:", e.message); }
 });
 
-app.get("/", (req, res) => res.send("✅ NID MongoDB Advanced Bot is running live."));
+app.get("/", (req, res) => res.send("✅ NID Server MongoDB Live Automation Bot is active."));
 
 // ========== ADMIN PANEL PANEL WITH LIVE MONGO DATA ==========
 const adminSessions = new Set();
@@ -421,7 +386,7 @@ app.post("/admin/login", (req, res) => {
     res.setHeader("Set-Cookie", `admin_sess=${tok}; HttpOnly; Path=/; Max-Age=86400`);
     return res.redirect("/admin");
   }
-  res.send("❌ Wrong password. <a href='/admin/login'>Try again</a>");
+  res.send("❌ Password মেলেনি! <a href='/admin/login'>আবার চেষ্টা করুন</a>");
 });
 
 app.get("/admin", adminAuth, async (req, res) => {
@@ -433,15 +398,15 @@ app.get("/admin", adminAuth, async (req, res) => {
     const s = await statsColl.findOne({ _id: normalizeNumber(u.number) }) || { count: 0, lastUsed: "—" };
     rows += `<tr>
       <td>${u.number}</td>
-      <td>${u.name || "—"}</td>
+      <td>${u.name || "User"}</td>
       <td style="color:green;font-weight:bold">${u.balance || 0} ৳</td>
-      <td>${u.active !== false ? "✅" : "❌"}</td>
-      <td>${s.count}</td>
-      <td style="font-size:11px">${s.lastUsed || "—"}</td>
+      <td>${u.active !== false ? "✅ Active" : "❌ Blocked"}</td>
+      <td>${s.count} টি</td>
+      <td style="font-size:11px">${s.lastUsed ? s.lastUsed.toLocaleString() : "—"}</td>
       <td>
         <form method="POST" action="/admin/recharge" style="display:inline;">
           <input type="hidden" name="number" value="${u.number}"/>
-          <input name="amount" placeholder="টাকা" type="number" style="width:65px;padding:3px" required/>
+          <input name="amount" placeholder="টাকা" type="number" style="width:70px;padding:3px" required/>
           <button name="type" value="add" style="background:#28a745;color:#fff;border:0;padding:4px 8px;border-radius:3px;cursor:pointer">+Add</button>
         </form>
       </td>
@@ -455,30 +420,30 @@ app.get("/admin", adminAuth, async (req, res) => {
     th{background:#0078d4;color:#fff}
     .card{background:#f9f9f9;padding:15px;margin:10px 0;border-radius:6px;border:1px solid #ddd}
   </style></head><body>
-    <h1>📊 NID Bot Admin (Strict Balance & MongoDB History)</h1>
+    <h1>📊 NID Bot Admin Console (External Puppeteer Linked)</h1>
     <div class="card">
-      <h3>⚙️ Configuration</h3>
+      <h3>⚙️ Global Settings</h3>
       <form method="POST" action="/admin/settings">
-        Card Price (৳): <input name="cardPrice" value="${settings.cardPrice || 0}" style="width:80px" type="number"/>
-        <button>Save Settings</button>
+        प्रत्येक Card এর দাম (৳): <input name="cardPrice" value="${settings.cardPrice || 0}" style="width:80px" type="number"/>
+        <button>Save Global Rate</button>
       </form>
     </div>
-    <h3>👥 Users Control Panel</h3>
+    <h3>👥 Active Users List</h3>
     <table>
-      <tr><th>Number</th><th>Name</th><th>Balance</th><th>Active</th><th>Total Successful Cards</th><th>Last Used</th><th>Actions</th></tr>
+      <tr><th>WhatsApp Number</th><th>Name</th><th>Wallet Balance</th><th>Status</th><th>Total Cards Printed</th><th>Last Activity</th><th>Recharge Wallet</th></tr>
       ${rows}
     </table>
-    <h3>📜 ভিউ রিসেন্ট গ্লোবাল হিস্ট্রি (ডাটাবেজ লগ)</h3>
-    <p><a href="/admin/history" style="color:#0078d4;font-weight:bold;">👉 এখানে ক্লিক করে সমস্ত ইউজারদের সার্চ হিস্ট্রি রিপোর্ট দেখুন</a></p>
+    <h3>📜 ইউজারদের আলাদা আলাদা বিস্তারিত কাজের লগ (User History Report)</h3>
+    <p><a href="/admin/history" style="color:#0078d4;font-weight:bold;text-decoration:underline;">👉 এখানে ক্লিক করে প্রতিটি সার্চ রিকোয়েস্ট এবং ব্যালেন্স কাটার লাইভ হিস্ট্রি দেখুন</a></p>
   </body></html>`);
 });
 
-// আলাদা গ্লোবাল হিস্ট্রি দেখার অ্যান্ডপয়েন্ট
+// আলাদা প্রতিটি ইউজারের কাজের হিস্ট্রি দেখার ড্যাশবোর্ড
 app.get("/admin/history", adminAuth, async (req, res) => {
-  const history = await historyColl.find({}).sort({ timestamp: -1 }).limit(100).toArray();
+  const history = await historyColl.find({}).sort({ timestamp: -1 }).limit(150).toArray();
   const rows = history.map(h => `
     <tr>
-      <td>${h.timestamp.toLocaleString()}</td>
+      <td>${h.timestamp ? h.timestamp.toLocaleString() : "—"}</td>
       <td>${h.number}</td>
       <td>${h.nid}</td>
       <td>${h.dob}</td>
@@ -489,13 +454,18 @@ app.get("/admin/history", adminAuth, async (req, res) => {
     </tr>
   `).join("");
 
-  res.send(`<html><body>
-    <h2>📜 ইউজার সার্চ ও ব্যালেন্স কাটার ডিটেইলড হিস্ট্রি (সর্বশেষ ১০০টি অ্যাক্টিভিটি)</h2>
-    <table border="1" style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:13px;" cellpadding="8">
-      <tr style="background:#333;color:#fff"><th>সময়</th><th>হোয়াটসঅ্যাপ নম্বর</th><th>NID নম্বর</th><th>জন্মতারিখ</th><th>স্ট্যাটাস</th><th>কাটা হয়েছে</th><th>অবশিষ্ট ব্যালেন্স</th><th>মন্তব্য/সার্ভার মেসেজ</th></tr>
+  res.send(`<html><head><style>
+    body{font-family:sans-serif;max-width:1300px;margin:30px auto;padding:20px}
+    table{width:100%;border-collapse:collapse;margin:15px 0}
+    th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:13px}
+    th{background:#222;color:#fff}
+  </style></head><body>
+    <h2>📜 প্রতিটি ইউজারের আলাদা কাজের হিস্ট্রি লগ রিপোর্ট (সর্বশেষ ১৫০টি অ্যাক্টিভিটি)</h2>
+    <table>
+      <tr><th>সময়</th><th>হোয়াটসঅ্যাপ নম্বর</th><th>NID নম্বর</th><th>জন্মতারিখ (DOB)</th><th>স্ট্যাটাস</th><th>চার্জ</th><th>অবशिष्ट ব্যালেন্স</th><th>মন্তব্য/সার্ভার রেসপন্স মেসেজ</th></tr>
       ${rows}
     </table>
-    <br><a href="/admin">🔙 ড্যাশবোর্ডে ফিরে যান</a>
+    <br><a href="/admin" style="color:#0078d4; font-weight:bold;">🔙 মূল অ্যাডমিন ড্যাশবোর্ডে ফিরে যান</a>
   </body></html>`);
 });
 
@@ -518,12 +488,12 @@ app.post("/admin/settings", adminAuth, async (req, res) => {
   res.redirect("/admin");
 });
 
-// ========== SYSTEM STARTUP ==========
+// ========== SYSTEM STARTUP ENGINE ==========
 (async () => {
   await connectMongoDB();
-  await loginToPhpSite(); // বট স্টার্ট হওয়ার সাথে সাথে সাইটে ১ বার ব্যাকগ্রাউন্ড লগইন করবে
+  await loginToPhpSite(); // সার্ভার রান হওয়া মাত্রই ব্যাকগ্রাউন্ড কুকি জেনারেট করে রাখবে
   
   app.listen(CONFIG.PORT, () => {
-    console.log(`🚀 NID Engine with Strict Rules listening on port ${CONFIG.PORT}`);
+    console.log(`🚀 Automated NID Bot linked to Railway Puppeteer on port ${CONFIG.PORT}`);
   });
 })();
