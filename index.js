@@ -1,58 +1,118 @@
 /**
  * NID Service Bot - WhatsApp Cloud API Version
- * Fast MongoDB backup, recharge/deduct, font embed, 10min file delete
+ * Advanced Automation: Dynamic PHP Session Login, Double-Layer Balance Control & MongoDB History
  */
 
+require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const FormData = require("form-data");
+const puppeteer = require("puppeteer");
+const { MongoClient } = require("mongodb");
 
-// ========== CONFIG ==========
+// ========== CONFIGURATION ==========
 const CONFIG = {
   PORT: process.env.PORT || 3000,
   ADMIN_PASS: process.env.ADMIN_PASS || "admin123",
 
+  // WhatsApp Cloud API
   WA_TOKEN: process.env.WHATSAPP_TOKEN,
   WA_PHONE_ID: process.env.WHATSAPP_PHONE_ID,
   WA_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN || "myVerifyToken123",
   WA_API_VERSION: "v21.0",
 
-  API_EXTRACT_URL: "https://auto.onlinebd.top/Signtonid_api_one.php",
-  API_GENERATE_URL: "https://auto.onlinebd.top/bot/nid-bn.php",
-  PDF_API_URL: process.env.PDF_API_URL,
-  PDF_API_SECRET: process.env.PDF_API_SECRET,
+  // আপনার ওয়েবসাইটের ক্রেডেনশিয়ালস
+  PHP_SITE_BASE_URL: process.env.PHP_SITE_BASE_URL || "https://my-gov-bd.site",
+  PHP_BOT_EMAIL: "irfanbot@gmail.com",
+  PHP_BOT_PASS: "p@@ss: irfan2002",
 
-  BASE_URL: process.env.RENDER_EXTERNAL_URL || process.env.SELF_URL || "https://nidservicebd.onrender.com",
-  STORAGE_DIR: path.join(__dirname, "storage"),
-  DATA_DIR: path.join(__dirname, "data"),
-
-  // MongoDB Atlas (fast backup)
-  MONGO_URI: process.env.MONGO_URI, // mongodb+srv://user:pass@cluster.mongodb.net/nidbot
+  // MongoDB Connection URI
+  MONGO_URI: process.env.MONGO_URI || "mongodb+srv://sazzadpc4_db_user:Xr53oHTfLujIKDlw@cluster0.mongodb.net/?retryWrites=true&w=majority",
 };
 
-if (!fs.existsSync(CONFIG.STORAGE_DIR)) fs.mkdirSync(CONFIG.STORAGE_DIR, { recursive: true });
-if (!fs.existsSync(CONFIG.DATA_DIR)) fs.mkdirSync(CONFIG.DATA_DIR, { recursive: true });
+// Global Variables for State
+let db, usersColl, statsColl, settingsColl, historyColl;
+let phpSessionCookies = ""; // সাইটের লাইভ সেশন কুকি স্টোর করার জন্য
 
-const USERS_FILE    = path.join(CONFIG.DATA_DIR, "users.json");
-const STATS_FILE    = path.join(CONFIG.DATA_DIR, "stats.json");
-const SETTINGS_FILE = path.join(CONFIG.DATA_DIR, "settings.json");
+// ========== MONGODB SETUP ==========
+async function connectMongoDB() {
+  try {
+    const client = new MongoClient(CONFIG.MONGO_URI);
+    await client.connect();
+    db = client.db("nid_whatsapp_bot");
+    
+    // কালেকশনস ডিফাইন
+    usersColl = db.collection("users");
+    statsColl = db.collection("stats");
+    settingsColl = db.collection("settings");
+    historyColl = db.collection("history"); // আলাদা ইউজার হিস্ট্রি ট্র্যাকিংয়ের জন্য
 
-// ========== HELPERS ==========
-const loadJSON = (f, def) => {
-  try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return def; }
-};
-const saveJSON = (f, d) => fs.writeFileSync(f, JSON.stringify(d, null, 2));
+    console.log("✅ MongoDB Connected & Database Initialized.");
+    
+    // ডিফল্ট সেটিংস চেক বা তৈরি
+    const settings = await settingsColl.findOne({ _id: "bot_settings" });
+    if (!settings) {
+      await settingsColl.insertOne({ _id: "bot_settings", cardPrice: 10 }); // ডিফল্ট ১০ টাকা রেট
+    }
+  } catch (e) {
+    console.error("❌ MongoDB Connection Failed! Bot will retry or exit.", e.message);
+    process.exit(1);
+  }
+}
 
-const getUsers    = () => loadJSON(USERS_FILE,    []);
-const saveUsers   = (u) => saveJSON(USERS_FILE,   u);
-const getStats    = () => loadJSON(STATS_FILE,    {});
-const saveStats   = (s) => saveJSON(STATS_FILE,   s);
-const getSettings = () => loadJSON(SETTINGS_FILE, { cardPrice: 0 });
-const saveSettings= (s) => saveJSON(SETTINGS_FILE, s);
+// ========== AUTOMATED WEBSITE LOGIN ==========
+// এই ফাংশনটি আপনার ওয়েবসাইটের লগইন পেজে গিয়ে রিয়েল সেশন কুকি কালেক্ট করে নিয়ে আসবে
+async function loginToPhpSite() {
+  try {
+    console.log("🔐 Website-এ লগইন সেশন তৈরি করার চেষ্টা করা হচ্ছে...");
+    const params = new URLSearchParams();
+    
+    // আপনার সাইটের লগইন ফর্মের নাম অনুযায়ী ইনপুট নেম (সাধারণত email/username এবং password হয়)
+    params.append("email", CONFIG.PHP_BOT_EMAIL); 
+    params.append("password", CONFIG.PHP_BOT_PASS);
+    params.append("login", "submit"); // যদি সাবমিট বাটন ভ্যালু থাকে
 
+    const response = await axios.post(`${CONFIG.PHP_SITE_BASE_URL}/index.php`, params.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      maxRedirects: 0, // রিডাইরেক্ট হওয়া আটকে কুকি নেওয়া
+      validateStatus: (status) => status >= 200 && status < 400
+    });
+
+    // রেসপন্স হেডার থেকে PHPSESSID এবং user_id কুকি ফিল্টার করা
+    const cookies = response.headers["set-cookie"];
+    if (cookies && cookies.length > 0) {
+      phpSessionCookies = cookies.map(c => c.split(";")[0]).join("; ");
+      console.log("✅ লগইন সফল! নতুন সেশন কুকি জেনারেট হয়েছে:", phpSessionCookies);
+      return true;
+    }
+    
+    // যদি রিডাইরেক্ট না হয়ে ডিরেক্ট সাকসেস দেয় (যেমন AJAX লগইন)
+    if (response.data) {
+      const cookies = response.headers["set-cookie"];
+      if(cookies) {
+         phpSessionCookies = cookies.map(c => c.split(";")[0]).join("; ");
+         return true;
+      }
+    }
+    
+    console.error("❌ লগইন রেসপন্সে কোনো কুকি পাওয়া যায়নি।");
+    return false;
+  } catch (error) {
+    // কিছু ক্ষেত্রে ৩0২ রিডাইরেক্ট হেডার থেকে কুকি পাওয়া যায়
+    if (error.response && error.response.headers["set-cookie"]) {
+      phpSessionCookies = error.response.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
+      console.log("✅ লগইন সফল (Redirect-Based Cookie Captured).");
+      return true;
+    }
+    console.error("❌ ওয়েবসাইট লগইন এপিআই ফেইল হয়েছে:", error.message);
+    return false;
+  }
+}
+
+// ========== STRICT USER & BALANCE MANAGEMENT ==========
 function normalizeNumber(num) {
   let n = String(num).replace(/\D/g, "");
   if (n.startsWith("0")) n = "880" + n.slice(1);
@@ -60,134 +120,49 @@ function normalizeNumber(num) {
   return n;
 }
 
-function isAllowed(number) {
-  const users = getUsers();
-  if (users.length === 0) return false;
-  const u = users.find(x => normalizeNumber(x.number) === normalizeNumber(number));
-  return u && u.active !== false;
+async function isAllowed(number) {
+  const user = await usersColl.findOne({ number: normalizeNumber(number) });
+  return user && user.active !== false;
 }
 
-function getUserBalance(number) {
-  const u = getUsers().find(x => normalizeNumber(x.number) === normalizeNumber(number));
-  return u ? (u.balance || 0) : 0;
+async function getUserBalance(number) {
+  const user = await usersColl.findOne({ number: normalizeNumber(number) });
+  return user ? (user.balance || 0) : 0;
 }
 
-function deductBalance(number) {
-  const users = getUsers();
-  const price = getSettings().cardPrice || 0;
-  const idx = users.findIndex(x => normalizeNumber(x.number) === normalizeNumber(number));
-  if (idx === -1) return false;
-  if ((users[idx].balance || 0) < price) return false;
-  users[idx].balance = (users[idx].balance || 0) - price;
-  saveUsers(users);
-  return true;
+async function getCardPrice() {
+  const settings = await settingsColl.findOne({ _id: "bot_settings" });
+  return settings ? settings.cardPrice : 0;
 }
 
-function recordStat(number) {
-  const stats = getStats();
-  const key = normalizeNumber(number);
-  if (!stats[key]) stats[key] = { count: 0, lastUsed: null };
-  stats[key].count++;
-  stats[key].lastUsed = new Date().toISOString();
-  saveStats(stats);
+// আলাদা ইউজার হিস্ট্রি ডাটাবেজে স্টোর করার ফাংশন
+async function logToHistory(number, nid, dob, status, charge, balanceAfter, remarks) {
+  await historyColl.insertOne({
+    number: normalizeNumber(number),
+    nid: nid,
+    dob: dob,
+    status: status, // 'success' অথবা 'failed'
+    charge: charge,
+    balanceAfterCut: balanceAfter,
+    remarks: remarks,
+    timestamp: new Date()
+  });
 }
 
-// ========== MONGODB BACKUP (fast, instant) ==========
-// MongoDB REST API (Data API) ব্যবহার করা হচ্ছে — npm package দরকার নেই
-// Render এ MONGO_URI env variable সেট করুন
-// Format: mongodb+srv://user:pass@cluster.mongodb.net/nidbot
-
-let mongoClient = null;
-
-async function getMongoClient() {
-  if (mongoClient) return mongoClient;
-  if (!CONFIG.MONGO_URI) return null;
-  try {
-    const { MongoClient } = require("mongodb");
-    mongoClient = new MongoClient(CONFIG.MONGO_URI);
-    await mongoClient.connect();
-    console.log("✅ MongoDB connected");
-    return mongoClient;
-  } catch (e) {
-    console.error("MongoDB connect error:", e.message);
-    return null;
-  }
-}
-
-async function saveToMongo(collection, key, data) {
-  try {
-    const client = await getMongoClient();
-    if (!client) return;
-    const db = client.db("nidbot");
-    await db.collection(collection).replaceOne({ _id: key }, { _id: key, data }, { upsert: true });
-  } catch (e) {
-    console.error("MongoDB save error:", e.message);
-  }
-}
-
-async function loadFromMongo(collection, key) {
-  try {
-    const client = await getMongoClient();
-    if (!client) return null;
-    const db = client.db("nidbot");
-    const doc = await db.collection(collection).findOne({ _id: key });
-    return doc ? doc.data : null;
-  } catch (e) {
-    console.error("MongoDB load error:", e.message);
-    return null;
-  }
-}
-
-// ✅ Fast backup — সাথে সাথে MongoDB এ save হয়
-async function backupData() {
-  try {
-    await Promise.all([
-      saveToMongo("backups", "users",    getUsers()),
-      saveToMongo("backups", "stats",    getStats()),
-      saveToMongo("backups", "settings", getSettings()),
-    ]);
-    console.log("✅ MongoDB backup done");
-  } catch (e) {
-    console.error("Backup error:", e.message);
-  }
-}
-
-// ✅ Restore from MongoDB on startup
-async function restoreData() {
-  try {
-    const [users, stats, settings] = await Promise.all([
-      loadFromMongo("backups", "users"),
-      loadFromMongo("backups", "stats"),
-      loadFromMongo("backups", "settings"),
-    ]);
-    if (users    && !fs.existsSync(USERS_FILE))    saveUsers(users);
-    if (stats    && !fs.existsSync(STATS_FILE))    saveStats(stats);
-    if (settings && !fs.existsSync(SETTINGS_FILE)) saveSettings(settings);
-    if (users || stats || settings) console.log("✅ Data restored from MongoDB");
-    else console.log("ℹ️ No MongoDB data found — starting fresh");
-  } catch (e) {
-    console.error("Restore error:", e.message);
-  }
-}
-
-// ========== WHATSAPP CLOUD API ==========
+// ========== WHATSAPP CLOUD API HELPERS ==========
 const WA_BASE    = `https://graph.facebook.com/${CONFIG.WA_API_VERSION}/${CONFIG.WA_PHONE_ID}`;
-const WA_HEADERS = { Authorization: `Bearer ${CONFIG.WA_TOKEN}`, "Content-Type": "application/json" };
+const WA_HEADERS = () => ({ Authorization: `Bearer ${CONFIG.WA_TOKEN}`, "Content-Type": "application/json" });
 
 async function sendText(to, body) {
   try {
     await axios.post(`${WA_BASE}/messages`, {
       messaging_product: "whatsapp", to, type: "text", text: { body }
-    }, { headers: WA_HEADERS });
+    }, { headers: WA_HEADERS() });
   } catch (e) { console.error("sendText error:", e.response?.data || e.message); }
 }
 
 async function markRead(messageId) {
-  try {
-    await axios.post(`${WA_BASE}/messages`, {
-      messaging_product: "whatsapp", status: "read", message_id: messageId
-    }, { headers: WA_HEADERS });
-  } catch {}
+  try { await axios.post(`${WA_BASE}/messages`, { messaging_product: "whatsapp", status: "read", message_id: messageId }, { headers: WA_HEADERS() }); } catch {}
 }
 
 async function uploadMedia(buffer, filename, mimetype) {
@@ -205,202 +180,194 @@ async function uploadMedia(buffer, filename, mimetype) {
 async function sendDocument(to, mediaId, filename, caption) {
   try {
     await axios.post(`${WA_BASE}/messages`, {
-      messaging_product: "whatsapp", to, type: "document",
-      document: { id: mediaId, filename, caption }
-    }, { headers: WA_HEADERS });
+      messaging_product: "whatsapp", to, type: "document", document: { id: mediaId, filename, caption }
+    }, { headers: WA_HEADERS() });
   } catch (e) { console.error("sendDocument error:", e.response?.data || e.message); }
 }
 
-async function downloadMedia(mediaId) {
-  const meta = await axios.get(`https://graph.facebook.com/${CONFIG.WA_API_VERSION}/${mediaId}`, {
-    headers: { Authorization: `Bearer ${CONFIG.WA_TOKEN}` }
-  });
-  const fileRes = await axios.get(meta.data.url, {
-    headers: { Authorization: `Bearer ${CONFIG.WA_TOKEN}` },
-    responseType: "arraybuffer"
-  });
-  return { buffer: Buffer.from(fileRes.data), mimetype: meta.data.mime_type };
-}
+// ========== LIVE SERVER SEARCH & PUPPETEER ENGINE ==========
 
-// ========== NID EXTRACTION ==========
-function mapAPIData(d) {
-  return {
-    nid:        d.nationalId || d.nid || d.NID || d.national_id || "",
-    pin:        d.pin || "",
-    pin_status: "disabled",
-    nameBangla: d.nameBangla || d.name_bn || "",
-    nameEnglish:d.nameEnglish || d.name_en || "",
-    dob:        d.dateOfBirth || d.dob || "",
-    nameFather: d.fatherName || d.father_name || "",
-    nameMother: d.motherName || d.mother_name || "",
-    fulladdress:d.address || d.permanent_address || "",
-    birthPlace: d.birthPlace || d.birth_place || "",
-    bloodGroup: d.bloodGroup || d.blood_group || "",
-    issueDate:  d.dateOfToday || "",
-    imageUrl12: d.userIMG || d.imageUrl12 || "",
-    imageUrl22: d.signIMG || d.imageUrl22 || "",
-  };
-}
-
-async function extractNIDFromPDF(buffer) {
-  const form = new FormData();
-  form.append("pdf", buffer, { filename: "nid.pdf", contentType: "application/pdf" });
+// ১. সাইটের insert_un_server_24.php ফাইলে সার্চ এক্সিকিউট করা
+async function searchNIDOnServer(nid, dob) {
   try {
-    const res = await axios.post(CONFIG.API_EXTRACT_URL, form, {
-      headers: form.getHeaders(),
-      maxContentLength: Infinity, maxBodyLength: Infinity, timeout: 60000,
-    });
-    console.log("📦 FULL API Response:", JSON.stringify(res.data, null, 2));
-    const raw = (res.data?.data) ? res.data.data : res.data;
-    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return mapAPIData(parsed);
-  } catch (err) {
-    console.error("❌ Extract API failed:", err.response?.status, JSON.stringify(err.response?.data), err.message);
-    throw new Error("Extract API: " + (err.response?.data?.message || err.message));
-  }
-}
-
-// ========== PATH FIX ==========
-function fixRelativePaths(html) {
-  const BASE = "https://auto.onlinebd.top/bot";
-  const patterns = [
-    [/(src\s*=\s*["'])(assets\/)/gi,    `$1${BASE}/assets/`],
-    [/(href\s*=\s*["'])(assets\/)/gi,   `$1${BASE}/assets/`],
-    [/(src\s*=\s*["'])(photo\/)/gi,     `$1${BASE}/photo/`],
-    [/(src\s*=\s*)(assets\/)/gi,        `$1${BASE}/assets/`],
-    [/(href\s*=\s*)(assets\/)/gi,       `$1${BASE}/assets/`],
-    [/(src\s*=\s*)(photo\/)/gi,         `$1${BASE}/photo/`],
-    [/(url\s*\(\s*["']?)(assets\/)/gi,  `$1${BASE}/assets/`],
-    [/(url\s*\(\s*["']?)(photo\/)/gi,   `$1${BASE}/photo/`],
-    [/(url\s*\(\s*["']?)(\/fonts\/)/gi, `$1https://auto.onlinebd.top/fonts/`],
-  ];
-  for (const [r, rep] of patterns) html = html.replace(r, rep);
-  const doubled = new RegExp(BASE.replace(/\./g, '\\.') + '/' + BASE.replace(/\./g, '\\.').replace('https://', ''), 'g');
-  html = html.replace(doubled, BASE);
-  return html;
-}
-
-// ========== FONT EMBED ==========
-async function embedFontsInHTML(html) {
-  const fonts = [
-    { url: "https://auto.onlinebd.top/fonts/Bangla.ttf", family: "Bangla", weight: "normal" },
-    { url: "https://auto.onlinebd.top/fonts/Arial.ttf",  family: "Arial",  weight: "normal" },
-  ];
-  let fontCSS = "";
-  for (const font of fonts) {
-    try {
-      const res = await axios.get(font.url, { responseType: "arraybuffer", timeout: 15000 });
-      const b64 = Buffer.from(res.data).toString("base64");
-      fontCSS += `\n@font-face{font-family:'${font.family}';src:url('data:font/truetype;base64,${b64}') format('truetype');font-weight:${font.weight};font-style:normal;}`;
-      console.log(`✅ Font embedded: ${font.family} — ${Math.round(res.data.byteLength / 1024)}KB`);
-    } catch (e) {
-      console.log(`⚠️ Font skip: ${font.url} — ${e.message}`);
+    if (!phpSessionCookies) {
+      await loginToPhpSite(); // যদি কুকি না থাকে, আগে লগইন করবে
     }
-  }
-  const overrideCSS = `${fontCSS}\n*{font-family:Bangla,Arial,sans-serif!important;}.bn{font-family:Bangla,sans-serif!important;}.sans{font-family:Arial,sans-serif!important;}`;
-  if (html.includes("</head>")) {
-    html = html.replace("</head>", `<style id="embedded-fonts">${overrideCSS}</style>\n</head>`);
-  } else {
-    html = `<style id="embedded-fonts">${overrideCSS}</style>\n` + html;
-  }
-  return html;
-}
 
-async function fetchHTMLFromData(data) {
-  const params = new URLSearchParams();
-  Object.entries(data).forEach(([k, v]) => params.append(k, v || ""));
-  const res = await axios.post(CONFIG.API_GENERATE_URL, params.toString(), {
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    timeout: 60000,
-  });
-  return fixRelativePaths(res.data);
-}
+    const params = new URLSearchParams();
+    params.append("nid", nid);
+    params.append("dob", dob);
 
-async function buildAndSaveHTML(data) {
-  const html = await fetchHTMLFromData(data);
-  const filename = `nid_${data.nid || Date.now()}_${Date.now()}.html`;
-  const filepath = path.join(CONFIG.STORAGE_DIR, filename);
-  fs.writeFileSync(filepath, html);
-
-  // ✅ 10 মিনিট পর file delete
-  setTimeout(() => {
-    fs.unlink(filepath, (err) => {
-      if (!err) console.log(`🗑️ Deleted: ${filename}`);
+    const response = await axios.post(`${CONFIG.PHP_SITE_BASE_URL}/insert_un_server_24.php`, params.toString(), {
+      headers: { 
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Cookie": phpSessionCookies // সংগৃহীত রিয়েল এডমিন/বট সেশন কুকি
+      },
+      timeout: 50000
     });
-  }, 10 * 60 * 1000);
 
-  return `${CONFIG.BASE_URL}/storage/${filename}`;
+    return response.data;
+  } catch (error) {
+    console.error("Axios Search Error:", error.message);
+    // যদি সেশন মারা যায় (Session Expired), পুনরায় লগইন করে আরেকবার ট্রাই করবে
+    if (error.response && (error.response.status === 401 || error.response.status === 302)) {
+      console.log("🔄 সেশন এক্সপায়ার হয়েছে। রি-লগইন করা হচ্ছে...");
+      const loginOk = await loginToPhpSite();
+      if (loginOk) return await searchNIDOnServer(nid, dob); // রি-ট্রাই
+    }
+    return { status: "error", message: "ওয়েবসাইট সার্ভারে সংযোগ করা সম্ভব হচ্ছে না।" };
+  }
 }
 
-async function generatePDFFromMapped(data) {
-  let html = await fetchHTMLFromData(data);
-  html = await embedFontsInHTML(html);
-  console.log(`✅ Fonts embedded, HTML: ${html.length} chars`);
-  const res = await axios.post(`${CONFIG.PDF_API_URL}/pdf`, {
-    secret: CONFIG.PDF_API_SECRET, html
-  }, { timeout: 90000 });
-  const base64 = res.data.pdf || res.data.base64 || res.data;
-  return Buffer.from(base64, "base64");
+// ২. Puppeteer দিয়ে লাইভ পেজ ভিজিট এবং PDF রেন্ডার
+async function renderNIDToPdf(nid, dob) {
+  const targetUrl = `${CONFIG.PHP_SITE_BASE_URL}/server_download_v2_24.php?nid=${nid}&id=${dob}`;
+  
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--font-render-hinting=none"
+    ]
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1241, height: 1755, deviceScaleFactor: 2 });
+
+    // Puppeteer ব্রাউজারে সেশন কুকি ইনজেক্ট করা যাতে ডাউনলোড পেজ সরাসরি ওপেন হয়
+    if (phpSessionCookies) {
+      const cookieArray = phpSessionCookies.split(";").map(pair => {
+        const [name, value] = pair.trim().split("=");
+        return {
+          name: name,
+          value: value,
+          domain: new URL(CONFIG.PHP_SITE_BASE_URL).hostname,
+          path: "/"
+        };
+      });
+      for (const cookie of cookieArray) {
+        if(cookie.name && cookie.value) await page.setCookie(cookie);
+      }
+    }
+
+    await page.goto(targetUrl, { waitUntil: "networkidle0", timeout: 60000 });
+    await new Promise(resolve => setTimeout(resolve, 1500)); // ফন্ট লোড সেফটি বাফার
+
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
+      preferCSSPageSize: true
+    });
+
+    return pdfBuffer;
+  } finally {
+    await browser.close();
+  }
 }
 
-// ========== MESSAGE HANDLER ==========
-async function handleIncoming(msg, contact) {
+// ========== WHATSAPP INCOMING MESSAGE HANDLER ==========
+async function handleIncoming(msg) {
   const from  = msg.from;
   const msgId = msg.id;
   markRead(msgId);
 
   if (msg.type === "text") {
-    const text = msg.text.body.trim().toLowerCase();
-    if (text === ".ping" || text === "ping") return sendText(from, "🟢 Pong! Bot সচল আছে।");
-    if (text === ".status" || text === "status") {
-      if (!isAllowed(from)) return sendText(from, "❌ আপনি authorized নন। Admin এর সাথে যোগাযোগ করুন।");
-      const bal   = getUserBalance(from);
-      const price = getSettings().cardPrice || 0;
+    const text = msg.text.body.trim();
+    const lowerText = text.toLowerCase();
+
+    if (lowerText === ".ping" || lowerText === "ping") return sendText(from, "🟢 Pong! Bot সচল আছে।");
+    if (lowerText === ".status" || lowerText === "status") {
+      if (!(await isAllowed(from))) return sendText(from, "❌ আপনি authorized নন। Admin এর সাথে যোগাযোগ করুন।");
+      const bal   = await getUserBalance(from);
+      const price = await getCardPrice();
       return sendText(from, `✅ আপনি authorized।\n💰 Balance: ${bal} টাকা\n💳 Card Price: ${price} টাকা`);
     }
-    return sendText(from, "📄 NID Card বানাতে আপনার NID PDF টা এই chat এ পাঠান।\n\nCommands:\n.ping - bot check\n.status - balance check");
-  }
 
-  if (msg.type === "document") {
-    const doc = msg.document;
-    if (!doc.mime_type?.includes("pdf")) return sendText(from, "❌ শুধু PDF file পাঠাতে হবে।");
-    if (!isAllowed(from)) return sendText(from, "❌ আপনি authorized নন। Admin এর সাথে যোগাযোগ করুন।");
+    // RegEx দিয়ে ডেটা এক্সট্রাক্ট করা
+    const nidRegex = /(\d{10}|\d{17})/;
+    const dobRegex = /(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})/;
 
-    const price = getSettings().cardPrice || 0;
-    if (price > 0 && getUserBalance(from) < price) {
-      return sendText(from, `❌ Balance কম! কমপক্ষে ${price} টাকা থাকতে হবে।\nCurrent balance: ${getUserBalance(from)} টাকা`);
+    const hasNid = text.match(nidRegex);
+    const hasDob = text.match(dobRegex);
+
+    if (hasNid && hasDob) {
+      if (!(await isAllowed(from))) return sendText(from, "❌ আপনি authorized নন। Admin এর সাথে যোগাযোগ করুন।");
+
+      const price = await getCardPrice();
+      const currentBalance = await getUserBalance(from);
+
+      // 🛡️ স্তর ১: বটের লেভেলে কঠোর ব্যালেন্স চেক
+      if (price > 0 && currentBalance < price) {
+        await logToHistory(from, hasNid[0], hasDob[0], "failed", 0, currentBalance, "Insufficient Bot Balance");
+        return sendText(from, `❌ আপনার বটের ব্যালেন্স কম! একটি কার্ডের জন্য ${price} টাকা প্রয়োজন।\nআপনার বর্তমান ব্যালেন্স: ${currentBalance} টাকা।`);
+      }
+
+      const nid = hasNid[0];
+      const dob = hasDob[0];
+
+      await sendText(from, `🔍 NID: ${nid} সার্ভারে খোঁজা হচ্ছে... অনুগ্রহ করে একটু অপেক্ষা করুন।`);
+
+      try {
+        // ধাপ ১: ওয়েবসাইট ব্যাকএন্ডে রিকোয়েস্ট দিয়ে চেক করা
+        const searchResult = await searchNIDOnServer(nid, dob);
+        const result = typeof searchResult === "string" ? JSON.parse(searchResult) : searchResult;
+
+        // 🛑 স্তর ২: আপনার ওয়েবসাইট সার্ভার থেকে এরর রেসপন্স চেক
+        if (result.status === "error" || result.status === "failed") {
+          const errMsg = result.message || "কোনো তথ্য পাওয়া যায়নি বা সার্ভার ব্যালেন্স শেষ।";
+          
+          // ব্যর্থতার রেকর্ড হিস্ট্রি কালেকশনে সেভ
+          await logToHistory(from, nid, dob, "failed", 0, currentBalance, `Server Error: ${errMsg}`);
+          
+          return sendText(from, `❌ ওয়েবসাইট সার্ভার থেকে এরর এসেছে:\n\n"${errMsg}"\n\n[অনুরোধটি বাতিল করা হয়েছে, কোনো ব্যালেন্স কাটা হয়নি]`);
+        }
+
+        // ধাপ ২: সার্চ সফল হলেই কেবল Puppeteer দিয়ে ডাউনলোড পেজ জেনারেট করা হবে
+        await sendText(from, `📥 তথ্য পাওয়া গেছে! পিডিএফ (PDF) কপি তৈরি করা হচ্ছে...`);
+        const pdfBuffer = await renderNIDToPdf(nid, dob);
+
+        // 💳 ব্যালেন্স ডিডাকশন (নিখুঁত ও কঠোর কাট)
+        const finalBalance = currentBalance - price;
+        await usersColl.updateOne({ number: normalizeNumber(from) }, { $set: { balance: finalBalance } });
+
+        // সফল কাজের হিস্ট্রি ডাটাবেজে স্টোর
+        await logToHistory(from, nid, dob, "success", price, finalBalance, "Successfully generated and sent");
+
+        // স্ট্যাটস আপডেট
+        await statsColl.updateOne(
+          { _id: normalizeNumber(from) },
+          { $inc: { count: 1 }, $set: { lastUsed: new Date() } },
+          { upsert: true }
+        );
+
+        const filename = `nid-${nid}.pdf`;
+        const caption  = `✅ আপনার NID সার্ভার কপি তৈরি হয়েছে!\n\n🆔 NID: ${nid}\n🎂 DOB: ${dob}\n${price > 0 ? `💰 Remaining Balance: ${finalBalance} টাকা` : ""}`;
+
+        // হোয়াটসঅ্যাপে ফাইল ডেলিভারি
+        const mediaId = await uploadMedia(pdfBuffer, filename, "application/pdf");
+        await sendDocument(from, mediaId, filename, caption);
+
+      } catch (err) {
+        console.error("Main Flow Error:", err.message);
+        await logToHistory(from, nid, dob, "failed", 0, currentBalance, `System Crash: ${err.message}`);
+        await sendText(from, `❌ ইন্টারনাল সার্ভার ক্রাশ! অনুগ্রহ করে আবার চেষ্টা করুন।\nError: ${err.message}`);
+      }
+      return;
     }
 
-    await sendText(from, "⏳ আপনার NID PDF process হচ্ছে... একটু wait করুন।");
-
-    try {
-      const { buffer: pdfBuf } = await downloadMedia(doc.id);
-      const data = await extractNIDFromPDF(pdfBuf);
-      if (!data.nid) throw new Error("NID extract করতে পারিনি");
-
-      if (price > 0) deductBalance(from);
-
-      const [htmlUrl, pdfBuffer] = await Promise.all([
-        buildAndSaveHTML(data),
-        generatePDFFromMapped(data),
-      ]);
-
-      recordStat(from);
-      backupData(); // ✅ instant MongoDB backup
-
-      const filename = `nid-${data.nid}.pdf`;
-      const caption  = `✅ আপনার NID Card তৈরি হয়েছে!\n\n👤 নাম: ${data.nameBangla || data.nameEnglish}\n🆔 NID: ${data.nid}\n🎂 DOB: ${data.dob}\n${price > 0 ? `💰 Remaining Balance: ${getUserBalance(from)} টাকা\n` : ""}🖨️ Print করতে (১০ মিনিট): ${htmlUrl}`;
-
-      const mediaId = await uploadMedia(pdfBuffer, filename, "application/pdf");
-      await sendDocument(from, mediaId, filename, caption);
-    } catch (err) {
-      console.error("Process error:", err.message);
-      await sendText(from, `❌ Error: ${err.message}\nআবার চেষ্টা করুন বা admin কে জানান।`);
+    if (hasNid && !hasDob) {
+      return sendText(from, "⚠️ আপনি জন্মতারিখ (DOB) দেননি। অনুগ্রহ করে NID এবং জন্মতারিখ স্পেস দিয়ে একসাথে লিখে পাঠান। (যেমন: 1234567890 1995-12-25)");
     }
+
+    return sendText(from, "📄 NID সার্ভার কপি বের করতে NID নম্বর এবং জন্মতারিখ একসাথে লিখে পাঠান।\n\nউদাহরণ:\n1234567890 1995-12-25\n\nCommands:\n.ping - bot check\n.status - balance check");
   }
 }
 
-// ========== EXPRESS SERVER ==========
+// ========== EXPRESS SERVER & WEBHOOKS ==========
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
@@ -410,7 +377,6 @@ app.get("/webhook", (req, res) => {
   const token     = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
   if (mode === "subscribe" && token === CONFIG.WA_VERIFY_TOKEN) {
-    console.log("✅ Webhook verified");
     return res.status(200).send(challenge);
   }
   return res.sendStatus(403);
@@ -422,27 +388,16 @@ app.post("/webhook", async (req, res) => {
     const entry    = req.body.entry?.[0];
     const change   = entry?.changes?.[0]?.value;
     const messages = change?.messages || [];
-    const contacts = change?.contacts || [];
     for (const msg of messages) {
-      await handleIncoming(msg, contacts[0]);
+      await handleIncoming(msg);
     }
-  } catch (e) { console.error("Webhook error:", e.message); }
+  } catch (e) { console.error("Webhook endpoint error:", e.message); }
 });
 
-app.get("/privacy", (req, res) => {
-  res.send(`<html><body style="font-family:sans-serif;max-width:700px;margin:40px auto;padding:20px;">
-    <h1>Privacy Policy</h1>
-    <p>NID Service Bot collects only the NID PDF you send. We process it to generate a card and do not share your data with any third party except the NID extraction service required for processing.</p>
-    <p>Data is stored temporarily and deleted automatically.</p>
-  </body></html>`);
-});
+app.get("/", (req, res) => res.send("✅ NID MongoDB Advanced Bot is running live."));
 
-app.use("/storage", express.static(CONFIG.STORAGE_DIR));
-app.get("/", (req, res) => res.send("✅ NID Bot (Cloud API) is running"));
-
-// ========== ADMIN PANEL ==========
+// ========== ADMIN PANEL PANEL WITH LIVE MONGO DATA ==========
 const adminSessions = new Set();
-
 function adminAuth(req, res, next) {
   const sess = (req.headers.cookie || "").split(";").map(s => s.trim()).find(s => s.startsWith("admin_sess="))?.split("=")[1];
   if (sess && adminSessions.has(sess)) return next();
@@ -469,46 +424,29 @@ app.post("/admin/login", (req, res) => {
   res.send("❌ Wrong password. <a href='/admin/login'>Try again</a>");
 });
 
-app.get("/admin/logout", (req, res) => {
-  const cookie = (req.headers.cookie || "").split(";").map(s => s.trim()).find(s => s.startsWith("admin_sess="));
-  if (cookie) adminSessions.delete(cookie.split("=")[1]);
-  res.setHeader("Set-Cookie", "admin_sess=; Max-Age=0; Path=/");
-  res.redirect("/admin/login");
-});
-
-app.get("/admin", adminAuth, (req, res) => {
-  const users    = getUsers();
-  const stats    = getStats();
-  const settings = getSettings();
-  const rows = users.map(u => {
-    const s = stats[normalizeNumber(u.number)] || { count: 0, lastUsed: "—" };
-    return `<tr>
+app.get("/admin", adminAuth, async (req, res) => {
+  const users = await usersColl.find({}).toArray();
+  const settings = await settingsColl.findOne({ _id: "bot_settings" });
+  
+  let rows = "";
+  for (const u of users) {
+    const s = await statsColl.findOne({ _id: normalizeNumber(u.number) }) || { count: 0, lastUsed: "—" };
+    rows += `<tr>
       <td>${u.number}</td>
       <td>${u.name || "—"}</td>
-      <td style="color:${(u.balance||0) < 0 ? 'red' : 'green'};font-weight:bold">${u.balance || 0} ৳</td>
+      <td style="color:green;font-weight:bold">${u.balance || 0} ৳</td>
       <td>${u.active !== false ? "✅" : "❌"}</td>
       <td>${s.count}</td>
       <td style="font-size:11px">${s.lastUsed || "—"}</td>
       <td>
-        <form method="POST" action="/admin/recharge" style="display:inline;white-space:nowrap">
+        <form method="POST" action="/admin/recharge" style="display:inline;">
           <input type="hidden" name="number" value="${u.number}"/>
-          <input name="amount" placeholder="টাকা" type="number" style="width:65px;padding:3px"/>
+          <input name="amount" placeholder="টাকা" type="number" style="width:65px;padding:3px" required/>
           <button name="type" value="add" style="background:#28a745;color:#fff;border:0;padding:4px 8px;border-radius:3px;cursor:pointer">+Add</button>
-          <button name="type" value="remove" style="background:#dc3545;color:#fff;border:0;padding:4px 8px;border-radius:3px;cursor:pointer">-Remove</button>
-        </form>
-        <form method="POST" action="/admin/toggle" style="display:inline">
-          <input type="hidden" name="number" value="${u.number}"/>
-          <button style="padding:4px 8px;cursor:pointer">Toggle</button>
-        </form>
-        <form method="POST" action="/admin/delete" style="display:inline">
-          <input type="hidden" name="number" value="${u.number}"/>
-          <button onclick="return confirm('Delete?')" style="background:#dc3545;color:#fff;border:0;padding:4px 8px;border-radius:3px;cursor:pointer">🗑️</button>
         </form>
       </td>
     </tr>`;
-  }).join("");
-
-  const mongoStatus = CONFIG.MONGO_URI ? "✅ MongoDB" : "❌ MongoDB না (MONGO_URI set করুন)";
+  }
 
   res.send(`<html><head><style>
     body{font-family:sans-serif;max-width:1200px;margin:30px auto;padding:20px}
@@ -516,123 +454,76 @@ app.get("/admin", adminAuth, (req, res) => {
     th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:13px}
     th{background:#0078d4;color:#fff}
     .card{background:#f9f9f9;padding:15px;margin:10px 0;border-radius:6px;border:1px solid #ddd}
-    button{padding:5px 10px;cursor:pointer}
-    .status{padding:8px 15px;border-radius:5px;background:#e8f5e9;border:1px solid #c8e6c9;font-size:13px;margin-bottom:10px}
   </style></head><body>
-    <h1>📊 NID Bot Admin Panel</h1>
-    <div style="text-align:right"><a href="/admin/logout">Logout</a></div>
-    <div class="status">Backup: ${mongoStatus}</div>
-
+    <h1>📊 NID Bot Admin (Strict Balance & MongoDB History)</h1>
     <div class="card">
-      <h3>⚙️ Settings</h3>
+      <h3>⚙️ Configuration</h3>
       <form method="POST" action="/admin/settings">
         Card Price (৳): <input name="cardPrice" value="${settings.cardPrice || 0}" style="width:80px" type="number"/>
-        <button>Save</button>
+        <button>Save Settings</button>
       </form>
     </div>
-
-    <div class="card">
-      <h3>➕ Add User</h3>
-      <form method="POST" action="/admin/add">
-        <input name="number" placeholder="WhatsApp Number (880...)" required/>
-        <input name="name" placeholder="Name"/>
-        <input name="balance" placeholder="Initial balance" value="0" type="number" style="width:100px"/>
-        <button>Add</button>
-      </form>
-    </div>
-
-    <div class="card">
-      <form method="POST" action="/admin/backup" style="display:inline">
-        <button style="background:#17a2b8;color:#fff;border:0;padding:8px 16px;border-radius:4px;cursor:pointer">☁️ MongoDB Backup Now</button>
-      </form>
-    </div>
-
-    <h3>👥 Users (${users.length})</h3>
+    <h3>👥 Users Control Panel</h3>
     <table>
-      <tr><th>Number</th><th>Name</th><th>Balance</th><th>Active</th><th>Cards</th><th>Last Used</th><th>Actions</th></tr>
+      <tr><th>Number</th><th>Name</th><th>Balance</th><th>Active</th><th>Total Successful Cards</th><th>Last Used</th><th>Actions</th></tr>
       ${rows}
     </table>
+    <h3>📜 ভিউ রিসেন্ট গ্লোবাল হিস্ট্রি (ডাটাবেজ লগ)</h3>
+    <p><a href="/admin/history" style="color:#0078d4;font-weight:bold;">👉 এখানে ক্লিক করে সমস্ত ইউজারদের সার্চ হিস্ট্রি রিপোর্ট দেখুন</a></p>
   </body></html>`);
 });
 
-app.post("/admin/add", adminAuth, (req, res) => {
-  const users = getUsers();
-  const { number, name, balance } = req.body;
-  const n = normalizeNumber(number);
-  if (!users.find(u => normalizeNumber(u.number) === n)) {
-    users.push({ number: n, name: name || "", balance: parseFloat(balance) || 0, active: true });
-    saveUsers(users);
-    backupData();
+// আলাদা গ্লোবাল হিস্ট্রি দেখার অ্যান্ডপয়েন্ট
+app.get("/admin/history", adminAuth, async (req, res) => {
+  const history = await historyColl.find({}).sort({ timestamp: -1 }).limit(100).toArray();
+  const rows = history.map(h => `
+    <tr>
+      <td>${h.timestamp.toLocaleString()}</td>
+      <td>${h.number}</td>
+      <td>${h.nid}</td>
+      <td>${h.dob}</td>
+      <td style="color:${h.status === 'success' ? 'green' : 'red'};font-weight:bold">${h.status.toUpperCase()}</td>
+      <td>${h.charge} ৳</td>
+      <td>${h.balanceAfterCut} ৳</td>
+      <td><i>${h.remarks}</i></td>
+    </tr>
+  `).join("");
+
+  res.send(`<html><body>
+    <h2>📜 ইউজার সার্চ ও ব্যালেন্স কাটার ডিটেইলড হিস্ট্রি (সর্বশেষ ১০০টি অ্যাক্টিভিটি)</h2>
+    <table border="1" style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:13px;" cellpadding="8">
+      <tr style="background:#333;color:#fff"><th>সময়</th><th>হোয়াটসঅ্যাপ নম্বর</th><th>NID নম্বর</th><th>জন্মতারিখ</th><th>স্ট্যাটাস</th><th>কাটা হয়েছে</th><th>অবশিষ্ট ব্যালেন্স</th><th>মন্তব্য/সার্ভার মেসেজ</th></tr>
+      ${rows}
+    </table>
+    <br><a href="/admin">🔙 ড্যাশবোর্ডে ফিরে যান</a>
+  </body></html>`);
+});
+
+app.post("/admin/recharge", adminAuth, async (req, res) => {
+  const { number, amount } = req.body;
+  const amt = parseFloat(amount) || 0;
+  if (amt > 0) {
+    await usersColl.updateOne(
+      { number: normalizeNumber(number) },
+      { $inc: { balance: amt }, $setOnInsert: { name: "User", active: true } },
+      { upsert: true }
+    );
   }
   res.redirect("/admin");
 });
 
-// ✅ Recharge — Add (+) এবং Remove (-) দুটোই
-app.post("/admin/recharge", adminAuth, (req, res) => {
-  const users  = getUsers();
-  const { number, amount, type } = req.body;
-  const i      = users.findIndex(u => normalizeNumber(u.number) === normalizeNumber(number));
-  const amt    = parseFloat(amount) || 0;
-  if (i !== -1 && amt > 0) {
-    if (type === "remove") {
-      users[i].balance = (users[i].balance || 0) - amt;
-    } else {
-      users[i].balance = (users[i].balance || 0) + amt;
-    }
-    saveUsers(users);
-    backupData(); // instant backup
-  }
+app.post("/admin/settings", adminAuth, async (req, res) => {
+  const price = parseFloat(req.body.cardPrice) || 0;
+  await settingsColl.updateOne({ _id: "bot_settings" }, { $set: { cardPrice: price } }, { upsert: true });
   res.redirect("/admin");
 });
 
-app.post("/admin/toggle", adminAuth, (req, res) => {
-  const users = getUsers();
-  const i     = users.findIndex(u => normalizeNumber(u.number) === normalizeNumber(req.body.number));
-  if (i !== -1) { users[i].active = users[i].active === false; saveUsers(users); backupData(); }
-  res.redirect("/admin");
-});
-
-app.post("/admin/delete", adminAuth, (req, res) => {
-  saveUsers(getUsers().filter(u => normalizeNumber(u.number) !== normalizeNumber(req.body.number)));
-  backupData();
-  res.redirect("/admin");
-});
-
-app.post("/admin/settings", adminAuth, (req, res) => {
-  saveSettings({ cardPrice: parseFloat(req.body.cardPrice) || 0 });
-  backupData();
-  res.redirect("/admin");
-});
-
-app.post("/admin/backup", adminAuth, async (req, res) => {
-  await backupData();
-  res.redirect("/admin");
-});
-
-// ========== STARTUP CLEANUP ==========
-function cleanupOldFiles() {
-  try {
-    const tenMin = 10 * 60 * 1000;
-    fs.readdirSync(CONFIG.STORAGE_DIR).forEach(f => {
-      if (!f.endsWith(".html")) return;
-      const fp  = path.join(CONFIG.STORAGE_DIR, f);
-      const age = Date.now() - fs.statSync(fp).mtimeMs;
-      if (age > tenMin) { fs.unlinkSync(fp); console.log(`🗑️ Cleaned: ${f}`); }
-    });
-  } catch (e) {}
-}
-
-// ========== START ==========
+// ========== SYSTEM STARTUP ==========
 (async () => {
-  await restoreData(); // MongoDB থেকে data restore
-  cleanupOldFiles();
-
+  await connectMongoDB();
+  await loginToPhpSite(); // বট স্টার্ট হওয়ার সাথে সাথে সাইটে ১ বার ব্যাকগ্রাউন্ড লগইন করবে
+  
   app.listen(CONFIG.PORT, () => {
-    console.log(`🚀 NID Bot running on port ${CONFIG.PORT}`);
-    console.log(`📡 Webhook: ${CONFIG.BASE_URL}/webhook`);
-    console.log(`🔐 Admin: ${CONFIG.BASE_URL}/admin`);
+    console.log(`🚀 NID Engine with Strict Rules listening on port ${CONFIG.PORT}`);
   });
-
-  // Self-ping
-  setInterval(() => { axios.get(CONFIG.BASE_URL).catch(() => {}); }, 14 * 60 * 1000);
 })();
