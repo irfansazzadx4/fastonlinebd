@@ -30,7 +30,7 @@ const CONFIG = {
   EXTERNAL_PUPPETEER_URL: "https://pupeeter-production-2b39.up.railway.app/pdf",
 
   // MongoDB Connection String
-  MONGO_URI: process.env.MONGO_URI || "mongodb+srv://sazzadpc4_db_user:Xr53oHTfLujIKDlw@cluster0.mongodb.net/nid_whatsapp_bot?retryWrites=true&w=majority",
+  MONGO_URI: process.env.MONGO_URI || "mongodb+srv://sazzadpc4_db_user:Xr53oHTfLujIKDlw@cluster0.agynr2o.mongodb.net/nid_whatsapp_bot?retryWrites=true&w=majority&appName=Cluster0",
 };
 
 // Global DB Instances
