@@ -9,6 +9,7 @@ const axios = require("axios");
 const crypto = require("crypto");
 const FormData = require("form-data");
 const { MongoClient } = require("mongodb");
+const mongoose = require('mongoose');
 const NidLog = require('./models/NidLog'); // আপনার তৈরি করা Mongoose মডেল ফাইল
 
 // ========== CONFIGURATION ==========
@@ -24,7 +25,7 @@ const CONFIG = {
   NID_API_KEY: process.env.NID_API_KEY || "arthur69",
   NID_API_URL: process.env.NID_API_URL || "https://api.server24x.site/unofficial/api.php",
 
-  // PDF render এর জন্য PHP সাইট (session সহ)
+  // PDF render এর জন্য PHP সাইট (শুধু ইমেজ সোর্সের জন্য ব্যবহৃত)
   PHP_SITE_BASE_URL: process.env.PHP_SITE_BASE_URL || "https://my-gov-bd.site",
   PHP_BOT_EMAIL: process.env.PHP_BOT_EMAIL || "irfanbot@gmail.com",
   PHP_BOT_PASS: process.env.PHP_BOT_PASS || "p@@ss: irfan2002",
@@ -38,13 +39,13 @@ let db, usersColl, statsColl, settingsColl, historyColl;
 let phpSessionCookies = "";
 
 function getWaBase() {
-  return `https://graph.facebook.com/${CONFIG.WA_API_VERSION}/${CONFIG.WA_PHONE_ID}`;
+  return `https://graph.facebook.com/${CONFIG.WA_API_VERSION}/${CONFIG.WA_PHONE_ID}`; //
 }
 function getWaHeaders() {
-  return { Authorization: `Bearer ${CONFIG.WA_TOKEN}`, "Content-Type": "application/json" };
+  return { Authorization: `Bearer ${CONFIG.WA_TOKEN}`, "Content-Type": "application/json" }; //
 }
 
-// ========== MONGODB ==========
+// ========== MONGODB & MONGOOSE CONNECTION ==========
 async function connectMongoDB() {
   try {
     const client = new MongoClient(CONFIG.MONGO_URI);
@@ -54,193 +55,189 @@ async function connectMongoDB() {
     statsColl    = db.collection("stats");
     settingsColl = db.collection("settings");
     historyColl  = db.collection("history");
-    console.log("✅ MongoDB Connected.");
-    const settings = await settingsColl.findOne({ _id: "bot_settings" });
-    if (!settings) await settingsColl.insertOne({ _id: "bot_settings", cardPrice: 10 });
+    console.log("✅ Native MongoDB Connected.");
+
+    await mongoose.connect(CONFIG.MONGO_URI);
+    console.log("✅ Mongoose Connected for NidLog.");
+
+    const settings = await settingsColl.findOne({ _id: "bot_settings" }); //
+    if (!settings) await settingsColl.insertOne({ _id: "bot_settings", cardPrice: 10 }); //
   } catch (e) {
-    console.error("❌ MongoDB Failed:", e.message);
-    process.exit(1);
+    console.error("❌ MongoDB/Mongoose Connection Failed:", e.message); //
+    process.exit(1); //
   }
 }
 
-// ========== PHP SITE LOGIN (শুধু PDF render এর জন্য) ==========
+// ========== PHP SITE LOGIN ==========
 async function loginToPhpSite() {
   try {
-    console.log("🔐 PHP সাইটে লগইন করা হচ্ছে...");
-    const params = new URLSearchParams();
-    params.append("email",    CONFIG.PHP_BOT_EMAIL);
-    params.append("password", CONFIG.PHP_BOT_PASS);
-    params.append("login",    "submit");
+    console.log("🔐 PHP সাইটে লগইন করা হচ্ছে..."); //
+    const params = new URLSearchParams(); //
+    params.append("email",    CONFIG.PHP_BOT_EMAIL); //
+    params.append("password", CONFIG.PHP_BOT_PASS); //
+    params.append("login",    "submit"); //
 
     const response = await axios.post(
-      `${CONFIG.PHP_SITE_BASE_URL}/index.php`,
+      `${CONFIG.PHP_SITE_BASE_URL}/index.php`, //
       params.toString(),
       {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        maxRedirects: 0,
-        validateStatus: (s) => s >= 200 && s < 400,
+        headers: { "Content-Type": "application/x-www-form-urlencoded" }, //
+        maxRedirects: 0, //
+        validateStatus: (s) => s >= 200 && s < 400, //
       }
     );
 
-    const cookies = response.headers["set-cookie"];
+    const cookies = response.headers["set-cookie"]; //
     if (cookies?.length > 0) {
-      phpSessionCookies = cookies.map(c => c.split(";")[0]).join("; ");
-      console.log("✅ লগইন সফল। কুকি:", phpSessionCookies);
-      return true;
+      phpSessionCookies = cookies.map(c => c.split(";")[0]).join("; "); //
+      console.log("✅ লগইন সফল। কুকি:", phpSessionCookies); //
+      return true; //
     }
-    return false;
+    return false; //
   } catch (error) {
     if (error.response?.headers["set-cookie"]) {
-      phpSessionCookies = error.response.headers["set-cookie"]
-        .map(c => c.split(";")[0]).join("; ");
-      console.log("✅ লগইন সফল (302 Redirect)।");
-      return true;
+      phpSessionCookies = error.response.headers["set-cookie"] //
+        .map(c => c.split(";")[0]).join("; "); //
+      console.log("✅ লগইন সফল (302 Redirect)।"); //
+      return true; //
     }
-    console.error("❌ লগইন ব্যর্থ:", error.message);
-    return false;
+    console.error("❌ লগইন ব্যর্থ:", error.message); //
+    return false; //
   }
 }
 
 // ========== USER HELPERS ==========
 function normalizeNumber(num) {
-  let n = String(num).replace(/\D/g, "");
-  if (n.startsWith("0"))                       n = "880" + n.slice(1);
-  if (!n.startsWith("880") && n.length === 10) n = "880" + n;
-  return n;
+  let n = String(num).replace(/\D/g, ""); //
+  if (n.startsWith("0"))                       n = "880" + n.slice(1); //
+  if (!n.startsWith("880") && n.length === 10) n = "880" + n; //
+  return n; //
 }
 
 async function isAllowed(number) {
-  const user = await usersColl.findOne({ number: normalizeNumber(number) });
-  return user && user.active !== false;
+  const user = await usersColl.findOne({ number: normalizeNumber(number) }); //
+  return user && user.active !== false; //
 }
 
 async function getUserBalance(number) {
-  const user = await usersColl.findOne({ number: normalizeNumber(number) });
-  return user ? (user.balance || 0) : 0;
+  const user = await usersColl.findOne({ number: normalizeNumber(number) }); //
+  return user ? (user.balance || 0) : 0; //
 }
 
 async function getCardPrice() {
-  const s = await settingsColl.findOne({ _id: "bot_settings" });
-  return s ? s.cardPrice : 0;
+  const s = await settingsColl.findOne({ _id: "bot_settings" }); //
+  return s ? s.cardPrice : 0; //
 }
 
 async function logToHistory(number, nid, dob, status, charge, balanceAfter, remarks) {
   await historyColl.insertOne({
-    number: normalizeNumber(number), nid, dob, status,
-    charge, balanceAfterCut: balanceAfter, remarks, timestamp: new Date(),
+    number: normalizeNumber(number), nid, dob, status, //
+    charge, balanceAfterCut: balanceAfter, remarks, timestamp: new Date(), //
   });
 }
 
 // ========== WHATSAPP API ==========
 async function sendText(to, body) {
   try {
-    await axios.post(`${getWaBase()}/messages`, {
-      messaging_product: "whatsapp", to, type: "text", text: { body },
-    }, { headers: getWaHeaders() });
-    console.log(`📤 Sent to ${to}`);
+    await axios.post(`${getWaBase()}/messages`, { //
+      messaging_product: "whatsapp", to, type: "text", text: { body }, //
+    }, { headers: getWaHeaders() }); //
+    console.log(`📤 Sent to ${to}`); //
   } catch (e) {
-    console.error("❌ sendText error:", e.response?.data || e.message);
+    console.error("❌ sendText error:", e.response?.data || e.message); //
   }
 }
 
 async function markRead(messageId) {
   try {
-    await axios.post(`${getWaBase()}/messages`, {
-      messaging_product: "whatsapp", status: "read", message_id: messageId,
-    }, { headers: getWaHeaders() });
+    await axios.post(`${getWaBase()}/messages`, { //
+      messaging_product: "whatsapp", status: "read", message_id: messageId, //
+    }, { headers: getWaHeaders() }); //
   } catch {}
 }
 
 async function uploadMedia(buffer, filename, mimetype) {
-  const form = new FormData();
-  form.append("messaging_product", "whatsapp");
-  form.append("file", buffer, { filename, contentType: mimetype });
-  form.append("type", mimetype);
-  const res = await axios.post(`${getWaBase()}/media`, form, {
-    headers: { ...form.getHeaders(), Authorization: `Bearer ${CONFIG.WA_TOKEN}` },
-    maxContentLength: Infinity, maxBodyLength: Infinity,
+  const form = new FormData(); //
+  form.append("messaging_product", "whatsapp"); //
+  form.append("file", buffer, { filename, contentType: mimetype }); //
+  form.append("type", mimetype); //
+  const res = await axios.post(`${getWaBase()}/media`, form, { //
+    headers: { ...form.getHeaders(), Authorization: `Bearer ${CONFIG.WA_TOKEN}` }, //
+    maxContentLength: Infinity, maxBodyLength: Infinity, //
   });
-  return res.data.id;
+  return res.data.id; //
 }
 
 async function sendDocument(to, mediaId, filename, caption) {
   try {
-    await axios.post(`${getWaBase()}/messages`, {
-      messaging_product: "whatsapp", to, type: "document",
-      document: { id: mediaId, filename, caption },
-    }, { headers: getWaHeaders() });
+    await axios.post(`${getWaBase()}/messages`, { //
+      messaging_product: "whatsapp", to, type: "document", //
+      document: { id: mediaId, filename, caption }, //
+    }, { headers: getWaHeaders() }); //
   } catch (e) {
-    console.error("sendDocument error:", e.response?.data || e.message);
+    console.error("sendDocument error:", e.response?.data || e.message); //
   }
 }
 
 // ========== DIRECT NID API CALL WITH MONGO DB LOGGING ==========
-async function searchNIDDirect(nid, dob) {
+async function searchNIDDirect(nid, dob, from) {
   try {
-    const url = `${CONFIG.NID_API_URL}?key=${CONFIG.NID_API_KEY}&nid=${nid}&dob=${dob}`;
-    console.log(`🔍 Direct API call: ${url}`);
+    const url = `${CONFIG.NID_API_URL}?key=${CONFIG.NID_API_KEY}&nid=${nid}&dob=${dob}`; //
+    console.log(`🔍 Direct API call: ${url}`); //
 
     const response = await axios.get(url, {
-      timeout: 50000,
-      headers: { "User-Agent": "Mozilla/5.0" },
+      timeout: 50000, //
+      headers: { "User-Agent": "Mozilla/5.0" }, //
     });
 
-    const result = response.data;
-    console.log("📦 API Raw Response:", JSON.stringify(result).substring(0, 200));
+    const result = response.data; //
 
-    // ================== নতুন ডাটাবেজ ব্যাকআপ সিস্টেম শুরু ==================
+    // MongoDB তে Raw JSON ব্যাকআপ সেভ
     try {
-      // এপিআই থেকে যে রেসপন্সই আসুক (success বা error) তা হুবহু MongoDB তে স্টোর হবে
       const logEntry = new NidLog({
+        userNumber: normalizeNumber(from),
         nid: nid,
         dob: dob,
-        rawResponse: result // সম্পূর্ণ JSON এখানে সেভ হচ্ছে
+        rawResponse: result
       });
       await logEntry.save();
       console.log(`✅ NID: ${nid} এর Raw JSON সফলভাবে MongoDB-তে ব্যাকআপ করা হয়েছে।`);
     } catch (dbError) {
-      // ডাটাবেজ সমস্যার কারণে যাতে মেইন সার্ভিস ব্যাহত না হয়, তাই ট্রাই-ক্যাচ দিয়ে আলাদা হ্যান্ডেল করা হয়েছে
       console.error("⚠️ MongoDB তে Raw JSON সেভ করতে ব্যর্থ:", dbError.message);
     }
-    // ================== নতুন ডাটাবেজ ব্যাকআপ সিস্টেম শেষ ==================
 
-    return result;
+    return result; //
 
   } catch (error) {
-    console.error("❌ Direct API Error:", error.message);
-    return { status: "error", message: "NID API সার্ভারে কানেক্ট করা যাচ্ছে না।" };
+    console.error("❌ Direct API Error:", error.message); //
+    return { status: "error", message: "NID API সার্ভারে কানেক্ট করা যাচ্ছে না।" }; //
   }
 }
 
-// ========== PDF RENDER (Puppeteer) ==========
-// ========== OFFICIAL NID TEMPLATE RENDER (BASE64 PUPPETEER) ==========
-async function renderPDFFromData(nidData) {
+// ========== EXTERNAL PUPPETEER PDF RENDER USING LOCAL BASE64 HTML ==========
+async function renderPDFLocalTemplate(apiData) {
   try {
-    // সেফ ডেটা স্ট্রাকচার পার্সিং
-    const root = nidData?.data || nidData || {};
-    const d = root.data || root;
+    // API রেসপন্স থেকে ডেটা ডিক্লেয়ারেশন
+    const nid = apiData.data?.nid || "";
+    const pin = apiData.data?.pin || "";
+    const oldNid = apiData.data?.oldNid || "-";
+    const upazilaCode = apiData.data?.upazilaCode || "-";
+    const voterArea = apiData.data?.voterArea || "";
+    const nameBn = apiData.data?.nameBn || "";
+    const nameEn = apiData.data?.nameEn || "";
+    const dob = apiData.data?.dob || "";
+    const father = apiData.data?.father || "";
+    const mother = apiData.data?.mother || "";
+    const bloodGroup = apiData.data?.bloodGroup || "-";
+    const age = apiData.data?.age || "";
+    const gender = apiData.data?.gender || "";
+    const birthDay = apiData.data?.birthDay || "";
+    const birthPlace = apiData.data?.birthPlace || "";
+    const presentAddr = apiData.data?.presentAddr || "";
+    const permAddr = apiData.data?.permAddr || "";
+    const photo = apiData.data?.photo || "";
 
-    // এপিআই রেসপন্স ম্যাপ (সার্ভার কপি ভ্যারিয়েবল)
-    const nameEn      = d.nameEn      || "—";
-    const nameBn      = d.name        || d.nameBn || "—";
-    const nid         = d.nationalId  || d.nid || "—";
-    const pin         = d.pin         || "—";
-    const dob         = d.dateOfBirth || d.dob || "—";
-    const father      = d.father      || "—";
-    const mother      = d.mother      || "—";
-    const bloodGroup  = d.bloodGroup  || "";
-    const gender      = d.gender      || "—";
-    const birthPlace  = d.birthPlace  || "—";
-    const oldNid      = d.oldNid      || "—";
-    const voterArea   = d.voterArea   || d.voter_aria_code || "—";
-    const upazilaCode = d.upazilaCode || d.upazila_code || "—";
-    const age         = d.age         || d.user_age || "—";
-    const birthDay    = d.birthDay    || d.user_birthDay || "—";
-    const presentAddr = d.presentAddress  || "—";
-    const permAddr    = d.permanentAddress || "—";
-    const photo       = d.photo       || "https://placehold.co/120x140?text=No+Photo";
-
-    // অরিজিনাল server_download_v2_24.php ফাইলের হুবহু অফিশিয়াল টেমপ্লেট
+    // অরিজিনাল server_download_v2_24.php ফাইলের হুবহু অফিশিয়াল টেমপ্লেট
     const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -304,7 +301,7 @@ async function renderPDFFromData(nidData) {
 		<div id="blood_group" contenteditable="true" style="position: absolute; left: 55%; top: 59.2%; width: auto; font-size: 14px; color: red; font-weight: normal; font-family: 'SolaimanLipi', sans-serif;">${bloodGroup}</div>
 		
 		<div contenteditable="true" style="position: absolute; left: 37.5%; top: 62%; width: auto; font-size: 16px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"><b>অন্যান্য তথ্য</b></div>
-		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 65.2%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"> বয়স </div>
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 65.2%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"> বয়স </div>
 		<div id="age_val" contenteditable="true" style="position: absolute; left: 55%; top: 65.2%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">${age}</div>
 		
 		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 68%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">লিঙ্গ </div>
@@ -332,7 +329,7 @@ async function renderPDFFromData(nidData) {
 		<div style="position: absolute; left: 18.5%; top: 43%; width: auto;">
 			<img id="qr" src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&amp;data=${encodeURIComponent(nameEn + " " + nid + " " + dob)}" height="85px" width="85px" />
 		</div>
-        
+		
 		<div id="name_en2" contenteditable="true" style="position: absolute; display: flex; font-weight: bold; left: 15.5%; top: 39.8%; height: 32px; width: 130px; font-size: 13px; color: rgb(7, 7, 7); margin: auto; align-items: center; font-family: 'Roboto', sans-serif;" align="center">
 			<div style="flex: 1; text-align: center;">${nameEn}</div>
 		</div>
@@ -340,10 +337,10 @@ async function renderPDFFromData(nidData) {
 </body>
 </html>`;
 
-    // ১. আপনার চাহিদা অনুযায়ী পুরো HTML কে Base64 এ কনভার্ট করা হলো
+    // ১. আপনার চাহিদা অনুযায়ী পুরো HTML কে Base64 এ কনভার্ট করা হলো
     const base64Html = Buffer.from(html).toString("base64");
 
-    // ২. Puppeteer এপিআই-তে রিকোয়েস্ট পাঠানো
+    // ২. Puppeteer এপিআই-তে রিকোয়েস্ট পাঠানো
     const response = await axios.post(
       CONFIG.EXTERNAL_PUPPETEER_URL,
       { 
@@ -371,173 +368,112 @@ async function renderPDFFromData(nidData) {
   }
 }
 
-// ========== MAIN MESSAGE HANDLER ==========
-async function handleIncoming(msg) {
-  const from  = msg.from;
-  const msgId = msg.id;
-  markRead(msgId);
+// ========== INCOMING MESSAGE HANDLER ==========
+async function handleIncoming(msgObj) {
+  const from = msgObj.from; //
+  const msgId = msgObj.id; //
+  const text = msgObj.text?.body?.trim(); //
 
-  if (msg.type !== "text") return;
+  if (!text) return; //
+  await markRead(msgId); //
 
-  const text      = msg.text.body.trim();
-  const lowerText = text.toLowerCase();
-  console.log(`📩 [${from}]: "${text}"`);
-
-  if (lowerText === "ping" || lowerText === ".ping")
-    return sendText(from, "🟢 Pong! Bot সচল আছে।");
-
-  if (lowerText === "status" || lowerText === ".status") {
-    if (!(await isAllowed(from)))
-      return sendText(from, "❌ আপনি authorized নন। Admin এর সাথে যোগাযোগ করুন।");
-    const bal   = await getUserBalance(from);
-    const price = await getCardPrice();
-    return sendText(from, `✅ আপনি authorized।\n💰 Balance: ${bal} টাকা\n💳 Card Price: ${price} টাকা`);
+  if (text.toLowerCase() === "start" || text.toLowerCase() === "menu") { //
+    await sendText(from, "👋 আমাদের NID সার্ভিস বোটে আপনাকে স্বাগতম!\n\nকার্ড বের করতে নিচে দেওয়া ফরম্যাটে মেসেজ দিন:\n*NID_NUMBER DOB*\n\nउदाहरण:\n_6014203332 1996-01-20_"); //
+    return; //
   }
 
-  const nidRegex = /(\d{10}|\d{17})/;
-  const dobRegex = /(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})/;
-  const hasNid   = text.match(nidRegex);
-  const hasDob   = text.match(dobRegex);
-
-  if (hasNid && !hasDob)
-    return sendText(from, "⚠️ জন্মতারিখ (DOB) দেননি!\n\nউদাহরণ:\n1234567890 1995-12-25");
-
-  if (hasNid && hasDob) {
-    if (!(await isAllowed(from)))
-      return sendText(from, "❌ আপনি authorized নন। Admin এর সাথে যোগাযোগ করুন।");
-
-    const price          = await getCardPrice();
-    const currentBalance = await getUserBalance(from);
-    const nid            = hasNid[0];
-
-    // DOB normalize — DD-MM-YYYY → YYYY-MM-DD
-    let dob = hasDob[0];
-    const dobParts = dob.split("-");
-    if (dobParts[0].length === 2) {
-      dob = `${dobParts[2]}-${dobParts[1]}-${dobParts[0]}`;
-    }
-
-    if (price > 0 && currentBalance < price) {
-      await logToHistory(from, nid, dob, "failed", 0, currentBalance, "Insufficient Balance");
-      return sendText(from, `❌ ব্যালেন্স কম!\n\nপ্রয়োজন: ${price} টাকা\nআপনার ব্যালেন্স: ${currentBalance} টাকা`);
-    }
-
-    await sendText(from, `🔍 NID: ${nid} খোঁজা হচ্ছে...\nঅনুগ্রহ করে একটু অপেক্ষা করুন।`);
-
-    try {
-      // ✅ সরাসরি API call — PHP session এর ঝামেলা নেই
-      const result = await searchNIDDirect(nid, dob);
-
-      // API success check (insert_un_server_24.php এর মতো)
-      const isSuccess =
-        result?.status &&
-        result.status.toLowerCase() === "success" &&
-        result?.data?.response &&
-        result.data.response.toLowerCase() === "success";
-
-      if (!isSuccess) {
-        const errMsg = result?.message || result?.data?.message || "তথ্য পাওয়া যায়নি বা NID/DOB ভুল।";
-        await logToHistory(from, nid, dob, "failed", 0, currentBalance, `API Error: ${errMsg}`);
-        return sendText(from, `❌ তথ্য পাওয়া যায়নি!\n\n"${errMsg}"\n\n[ব্যালেন্স কাটা হয়নি]`);
-      }
-
-      const d      = result.data.data;
-      const nameEn = d.nameEn || "Unknown";
-      const nameBn = d.name   || "";
-
-      await sendText(from, `✅ তথ্য পাওয়া গেছে!\n\n👤 ${nameBn} (${nameEn})\n\n📄 PDF তৈরি হচ্ছে...`);
-
-      const pdfBuffer = await renderPDFFromData(result);
-
-      // Balance কাটা
-      const finalBalance = currentBalance - price;
-      await usersColl.updateOne(
-        { number: normalizeNumber(from) },
-        { $set: { balance: finalBalance } }
-      );
-
-      await logToHistory(from, nid, dob, "success", price, finalBalance, `Direct API Success: ${nameEn}`);
-      await statsColl.updateOne(
-        { _id: normalizeNumber(from) },
-        { $inc: { count: 1 }, $set: { lastUsed: new Date() } },
-        { upsert: true }
-      );
-
-      const filename = `nid-${nid}.pdf`;
-      const caption  = `✅ NID সার্ভার কপি তৈরি হয়েছে!\n\n🆔 NID: ${nid}\n👤 ${nameBn}\n🎂 DOB: ${dob}${price > 0 ? `\n💰 বাকি ব্যালেন্স: ${finalBalance} টাকা` : ""}`;
-
-      const mediaId = await uploadMedia(pdfBuffer, filename, "application/pdf");
-      await sendDocument(from, mediaId, filename, caption);
-
-    } catch (err) {
-      console.error("Flow Error:", err.message);
-      await logToHistory(from, nid, dob, "failed", 0, currentBalance, `Crash: ${err.message}`);
-      await sendText(from, `❌ প্রসেসিং এরর!\n${err.message}`);
-    }
-    return;
+  const parts = text.split(/\s+/); //
+  if (parts.length !== 2) { //
+    await sendText(from, "❌ ভুল ফরম্যাট! দয়া করে এভাবে দিন:\n*NID_NUMBER DOB*\n\nউদাহরণ:\n_6014203332 1996-01-20_"); //
+    return; //
   }
 
-  return sendText(from,
-    "📄 NID সার্ভার কপি পেতে NID নম্বর এবং জন্মতারিখ একসাথে পাঠান।\n\n" +
-    "উদাহরণ:\n1234567890 1995-12-25\n\n" +
-    "Commands:\n.ping - bot check\n.status - balance check"
-  );
+  const [nid, dob] = parts; //
+  if (!/^\d{10}$|^\d{13}$|^\d{17}$/.test(nid) || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) { //
+    await sendText(from, "❌ ভুল NID অথবা জন্মতারিখ ফরম্যাট।\nNID ১০, ১৩ অথবা ১৭ ডিজিটের হতে হবে এবং DOB YYYY-MM-DD ফরম্যাটে হতে হবে।"); //
+    return; //
+  }
+
+  const allowed = await isAllowed(from); //
+  if (!allowed) { //
+    await sendText(from, "🚫 দুঃখিত, আপনি এই বটের অনুমোদিত ইউজার নন অথবা আপনার অ্যাকাউন্টটি নিষ্ক্রিয়। অ্যাডমিনের সাথে যোগাযোগ করুন।"); //
+    return; //
+  }
+
+  const balance = await getUserBalance(from); //
+  const price = await getCardPrice(); //
+
+  if (balance < price) { //
+    await sendText(from, `⚠️ আপনার পর্যাপ্ত ব্যালেন্স নেই।\nপ্রয়োজন: ${price} ৳\nআপনার ব্যালেন্স: ${balance} ৳\n\nদয়া করে রিচার্জ করতে অ্যাডমিনের সাথে যোগাযোগ করুন।`); //
+    return; //
+  }
+
+  await sendText(from, "⏳ আপনার রিকোয়েস্টটি প্রসেস করা হচ্ছে। দয়া করে অপেক্ষা করুন..."); //
+
+  try {
+    const apiResult = await searchNIDDirect(nid, dob, from); 
+
+    if (!apiResult || apiResult.status === "error" || apiResult.success === false || !apiResult.data) { //
+      const msg = apiResult?.message || "এনআইডি সার্ভার থেকে কোনো ডাটা পাওয়া যায়নি।"; //
+      await logToHistory(from, nid, dob, "failed", 0, balance, `API Error: ${msg}`); //
+      await sendText(from, `❌ ${msg}`); //
+      return; //
+    }
+
+    // Base64 ইমপ্লিমেন্টেড লোকাল HTML টেমপ্লেট দিয়ে সরাসরি PDF রেন্ডার করা হচ্ছে 
+    const pdfBuffer = await renderPDFLocalTemplate(apiResult); 
+    const filename = `${nid}_server_copy.pdf`; //
+
+    const mediaId = await uploadMedia(pdfBuffer, filename, "application/pdf"); //
+
+    const newBalance = balance - price; //
+    await usersColl.updateOne({ number: normalizeNumber(from) }, { $set: { balance: newBalance } }); //
+    await logToHistory(from, nid, dob, "success", price, newBalance, "সফলভাবে পিডিএফ পাঠানো হয়েছে।"); //
+
+    await sendDocument(from, mediaId, filename, `✅ সফলভাবে আপনার NID সার্ভার কপি তৈরি হয়েছে।\n\n💰 চার্জ কাটা হয়েছে: ${price} ৳\n📉 বর্তমান ব্যালেন্স: ${newBalance} ৳`); //
+
+  } catch (err) {
+    console.error("🔥 Global Handle Error:", err.message); //
+    await logToHistory(from, nid, dob, "failed", 0, balance, `Crash: ${err.message}`); //
+    await sendText(from, `❌ দুঃখিত, একটি অভ্যন্তরীণ কারিগরি ত্রুটি ঘটেছে। আবার চেষ্টা করুন বা অ্যাডমিনকে জানান। (${err.message})`); //
+  }
 }
 
-// ========== EXPRESS ==========
-const app = express();
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+// ========== EXPRESS SERVER & WEB ADMIN ==========
+const app = express(); //
+app.use(express.json()); //
+app.use(express.urlencoded({ extended: true })); //
 
-app.get("/webhook", (req, res) => {
-  const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
-  if (mode === "subscribe" && token === CONFIG.WA_VERIFY_TOKEN)
-    return res.status(200).send(challenge);
-  return res.sendStatus(403);
-});
-
-app.post("/webhook", async (req, res) => {
-  res.status(200).send("OK");
-  try {
-    const change = req.body.entry?.[0]?.changes?.[0]?.value;
-    if (change?.messages?.length > 0) {
-      for (const msg of change.messages) await handleIncoming(msg);
-    }
-  } catch (e) {
-    console.error("Webhook error:", e.message);
-  }
-});
-
-app.get("/", (req, res) => res.send("✅ NID Bot Active."));
-
-// ========== ADMIN ==========
-const adminSessions = new Set();
+const adminSessions = new Set(); //
 
 function adminAuth(req, res, next) {
-  const sess = (req.headers.cookie || "")
-    .split(";").map(s => s.trim())
-    .find(s => s.startsWith("admin_sess="))?.split("=")[1];
-  if (sess && adminSessions.has(sess)) return next();
-  res.redirect("/admin/login");
+  const cookies = req.headers.cookie || ""; //
+  const sess = cookies.split(";").map(s => s.trim()).find(s => s.startsWith("admin_sess="))?.split("=")[1]; //
+  if (sess && adminSessions.has(sess)) return next(); //
+  res.redirect("/admin/login"); //
 }
 
+// UI Styles
 const adminCSS = `<style>
-  *{box-sizing:border-box}
-  body{font-family:'Segoe UI',sans-serif;max-width:1300px;margin:30px auto;padding:20px;background:#f0f2f5}
-  h1,h2,h3{color:#1a1a2e}
-  .card{background:#fff;padding:20px;margin:15px 0;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
-  table{width:100%;border-collapse:collapse;margin:10px 0}
-  th,td{border:1px solid #ddd;padding:10px 12px;text-align:left;font-size:13px}
-  th{background:#1a73e8;color:#fff}
-  tr:nth-child(even){background:#f9f9f9}
-  .btn{display:inline-block;padding:6px 12px;border:0;border-radius:5px;cursor:pointer;font-size:13px;color:#fff}
-  .btn-green{background:#28a745}.btn-red{background:#dc3545}.btn-blue{background:#1a73e8}.btn-orange{background:#fd7e14}
-  input[type=text],input[type=number],input[type=password]{padding:8px 10px;border:1px solid #ccc;border-radius:5px;font-size:13px}
-  .badge-active{color:#28a745;font-weight:bold}.badge-blocked{color:#dc3545;font-weight:bold}
-  nav{margin-bottom:20px}
-  nav a{margin-right:15px;color:#1a73e8;text-decoration:none;font-weight:bold}
-  .alert{padding:12px 18px;border-radius:6px;margin:10px 0}
-  .alert-success{background:#d4edda;color:#155724}.alert-danger{background:#f8d7da;color:#721c24}
+  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; background: #f4f7f6; color: #333; }
+  h1 { color: #2c3e50; }
+  nav { background: #2c3e50; padding: 15px; border-radius: 5px; margin-bottom: 30px; display: flex; gap: 15px; flex-wrap: wrap; }
+  nav a { color: white; text-decoration: none; font-weight: bold; padding: 5px 10px; border-radius: 3px; }
+  nav a:hover { background: #34495e; }
+  .card { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin-top: 15px; min-width: 600px; }
+  th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+  th { background: #f2f2f2; color: #2c3e50; }
+  tr:hover { background: #f9f9f9; }
+  .btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; font-size: 13px; display: inline-block; }
+  .btn-blue { background: #007bff; color: white; }
+  .btn-blue:hover { background: #0056b3; }
+  .btn-danger { background: #dc3545; color: white; }
+  .btn-danger:hover { background: #bd2130; }
+  .alert { padding: 15px; border-radius: 4px; margin-bottom: 20px; font-weight: bold; }
+  .alert-success { background: #d4edda; color: #155724; }
+  .alert-danger { background: #f8d7da; color: #721c24; }
+  input, select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
 </style>`;
 
 const adminNav = `<nav>
@@ -545,182 +481,271 @@ const adminNav = `<nav>
   <a href="/admin/users">👥 Users</a>
   <a href="/admin/add-user">➕ Add User</a>
   <a href="/admin/history">📜 History</a>
+  <a href="/admin/nidlogs">📂 NID Raw Logs</a>
   <a href="/admin/settings">⚙️ Settings</a>
   <a href="/admin/logout" style="color:#dc3545">🚪 Logout</a>
 </nav>`;
 
+// Webhooks
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"]; //
+  const token = req.query["hub.verify_token"]; //
+  const challenge = req.query["hub.challenge"]; //
+  if (mode && token === CONFIG.WA_VERIFY_TOKEN) return res.status(200).send(challenge); //
+  res.sendStatus(403); //
+});
+
+app.post("/webhook", async (req, res) => {
+  res.sendStatus(200); //
+  const change = req.body?.entry?.[0]?.changes?.[0]?.value; //
+  const msg = change?.messages?.[0]; //
+  if (msg) await handleIncoming(msg); //
+});
+
+// Admin Authentication
 app.get("/admin/login", (req, res) => {
-  res.send(`<html><head>${adminCSS}<title>Login</title></head>
-  <body style="max-width:420px">
-    <div class="card" style="margin-top:100px">
-      <h2>🔐 NID Bot Admin</h2>
+  res.send(`<html><head>${adminCSS}<title>Admin Login</title></head><body>
+    <div class="card" style="max-width:350px; margin: 100px auto; text-align:center;">
+      <h2>🔒 Bot Admin Login</h2><br>
       <form method="POST" action="/admin/login">
-        <input type="password" name="password" placeholder="Password" style="width:100%;margin:10px 0" required/>
-        <button class="btn btn-blue" style="width:100%;padding:10px">Login</button>
+        <input type="password" name="password" placeholder="Admin Password" style="width:100%; padding:10px;" required/><br><br>
+        <button class="btn btn-blue" style="width:100%; padding:10px;">Login</button>
       </form>
     </div>
-  </body></html>`);
+  </body></html>`); //
 });
 
 app.post("/admin/login", (req, res) => {
-  if (req.body.password === CONFIG.ADMIN_PASS) {
-    const tok = crypto.randomBytes(16).toString("hex");
-    adminSessions.add(tok);
-    res.setHeader("Set-Cookie", `admin_sess=${tok}; HttpOnly; Path=/; Max-Age=86400`);
-    return res.redirect("/admin");
+  if (req.body.password === CONFIG.ADMIN_PASS) { //
+    const token = crypto.randomBytes(16).toString("hex"); //
+    adminSessions.add(token); //
+    res.setHeader("Set-Cookie", `admin_sess=${token}; Path=/; HttpOnly`); //
+    res.redirect("/admin"); //
+  } else {
+    res.send("<script>alert('ভুল পাসওয়ার্ড!'); window.location='/admin/login';</script>"); //
   }
-  res.send(`<html><head>${adminCSS}</head><body><div class="card alert alert-danger">❌ ভুল Password! <a href="/admin/login">আবার চেষ্টা করুন</a></div></body></html>`);
 });
 
+// Admin Dashboard
 app.get("/admin", adminAuth, async (req, res) => {
-  const totalUsers   = await usersColl.countDocuments({});
-  const activeUsers  = await usersColl.countDocuments({ active: { $ne: false } });
-  const totalSuccess = await historyColl.countDocuments({ status: "success" });
-  const totalFailed  = await historyColl.countDocuments({ status: "failed" });
-  const settings     = await settingsColl.findOne({ _id: "bot_settings" });
+  const totalUsers = await usersColl.countDocuments(); //
+  const totalHits = await historyColl.countDocuments(); //
+  const successHits = await historyColl.countDocuments({ status: "success" }); //
+  const failedHits = await historyColl.countDocuments({ status: "failed" }); //
 
   res.send(`<html><head>${adminCSS}<title>Dashboard</title></head><body>
-    <h1>📊 NID Bot Admin Dashboard</h1>${adminNav}
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin:20px 0">
-      <div class="card" style="text-align:center"><h3>${totalUsers}</h3><p>মোট ইউজার</p></div>
-      <div class="card" style="text-align:center"><h3 style="color:green">${activeUsers}</h3><p>Active ইউজার</p></div>
-      <div class="card" style="text-align:center"><h3 style="color:green">${totalSuccess}</h3><p>সফল রিকোয়েস্ট</p></div>
-      <div class="card" style="text-align:center"><h3 style="color:red">${totalFailed}</h3><p>ব্যর্থ রিকোয়েস্ট</p></div>
+    <h1>📊 Admin Dashboard</h1>${adminNav}
+    <div style="display:flex; gap:20px; flex-wrap:wrap;">
+      <div class="card" style="flex:1; min-width:200px; text-align:center;"><h3>👥 মোট ইউজার</h3><h2>${totalUsers}</h2></div>
+      <div class="card" style="flex:1; min-width:200px; text-align:center;"><h3>🔍 মোট সার্চ হিট</h3><h2>${totalHits}</h2></div>
+      <div class="card" style="flex:1; min-width:200px; text-align:center; color:green;"><h3>✅ সফল সার্চ</h3><h2>${successHits}</h2></div>
+      <div class="card" style="flex:1; min-width:200px; text-align:center; color:red;"><h3>❌ ব্যর্থ সার্চ</h3><h2>${failedHits}</h2></div>
     </div>
-    <div class="card"><b>💳 Card Price: ${settings?.cardPrice || 0} টাকা</b> — <a href="/admin/settings">পরিবর্তন করুন</a></div>
-  </body></html>`);
+  </body></html>`); //
 });
 
+// Users Management
 app.get("/admin/users", adminAuth, async (req, res) => {
-  const users = await usersColl.find({}).toArray();
-  const msg   = req.query.msg || "";
-  let rows = "";
-  for (const u of users) {
-    const s = await statsColl.findOne({ _id: normalizeNumber(u.number) }) || { count: 0 };
+  const users = await usersColl.find().toArray(); //
+  let rows = ""; //
+  users.forEach(u => {
     rows += `<tr>
-      <td>${u.number}</td><td>${u.name || "—"}</td>
-      <td style="color:green;font-weight:bold">${u.balance || 0} ৳</td>
-      <td class="${u.active !== false ? "badge-active" : "badge-blocked"}">${u.active !== false ? "✅ Active" : "❌ Blocked"}</td>
-      <td>${s.count}</td>
+      <td>${u.name || "—"}</td>
+      <td><b>${u.number}</b></td>
+      <td>${u.balance || 0} ৳</td>
+      <td>${u.active !== false ? "<span style='color:green;font-weight:bold'>Active</span>" : "<span style='color:red;font-weight:bold'>Disabled</span>"}</td>
       <td>
-        <form method="POST" action="/admin/balance" style="display:inline">
-          <input type="hidden" name="number" value="${u.number}"/>
-          <input type="number" name="amount" placeholder="টাকা" style="width:65px" required/>
-          <button name="action" value="add" class="btn btn-green">+Add</button>
-          <button name="action" value="deduct" class="btn btn-orange">-Cut</button>
-        </form>
-        <form method="POST" action="/admin/toggle-user" style="display:inline;margin-left:5px">
-          <input type="hidden" name="number" value="${u.number}"/>
-          <button class="btn ${u.active !== false ? "btn-red" : "btn-green"}">${u.active !== false ? "Block" : "Unblock"}</button>
-        </form>
-        <form method="POST" action="/admin/delete-user" style="display:inline;margin-left:5px" onsubmit="return confirm('ডিলিট করবেন?')">
-          <input type="hidden" name="number" value="${u.number}"/>
-          <button class="btn btn-red">🗑</button>
-        </form>
-      </td></tr>`;
-  }
-  res.send(`<html><head>${adminCSS}<title>Users</title></head><body>
+        <a class="btn btn-blue" href="/admin/edit-user?number=${u.number}">✏️ Edit / Recharge</a>
+      </td>
+    </tr>`; //
+  });
+
+  res.send(`<html><head>${adminCSS}<title>Manage Users</title></head><body>
     <h1>👥 User Management</h1>${adminNav}
-    ${msg ? `<div class="card alert ${msg.includes("✅") ? "alert-success" : "alert-danger"}">${msg}</div>` : ""}
-    <div class="card"><table>
-      <tr><th>Number</th><th>Name</th><th>Balance</th><th>Status</th><th>Cards</th><th>Actions</th></tr>
-      ${rows || "<tr><td colspan='6' style='text-align:center'>কোনো ইউজার নেই</td></tr>"}
-    </table></div>
-    <p><a href="/admin/add-user" class="btn btn-blue">➕ নতুন ইউজার যোগ করুন</a></p>
-  </body></html>`);
+    <div class="card">
+      <table>
+        <tr><th>নাম</th><th>হোয়াটসঅ্যাপ নম্বর</th><th>ব্যালেন্স</th><th>অবস্থা</th><th>অ্যাকশন</th></tr>
+        ${rows || "<tr><td colspan='5'>কোনো ইউজার পাওয়া যায়নি।</td></tr>"}
+      </table>
+    </div>
+  </body></html>`); //
 });
 
-app.get("/admin/add-user", adminAuth, async (req, res) => {
-  const msg = req.query.msg || "";
+app.get("/admin/add-user", adminAuth, (req, res) => {
   res.send(`<html><head>${adminCSS}<title>Add User</title></head><body>
-    <h1>➕ নতুন ইউজার</h1>${adminNav}
-    ${msg ? `<div class="card alert ${msg.includes("✅") ? "alert-success" : "alert-danger"}">${msg}</div>` : ""}
-    <div class="card"><form method="POST" action="/admin/add-user">
-      <table style="max-width:500px">
-        <tr><td><b>WhatsApp Number</b></td><td><input type="text" name="number" placeholder="01712345678" style="width:250px" required/></td></tr>
-        <tr><td><b>নাম</b></td><td><input type="text" name="name" placeholder="নাম" style="width:250px"/></td></tr>
-        <tr><td><b>Balance (৳)</b></td><td><input type="number" name="balance" value="0" style="width:120px"/></td></tr>
-      </table>
-      <br><button class="btn btn-blue" style="padding:10px 30px">যোগ করুন</button>
+    <h1>➕ Add New Authorized User</h1>${adminNav}
+    <div class="card"><form method="POST" action="/admin/add-user" style="max-width:400px; display:flex; flex-direction:column; gap:15px;">
+      <input type="text" name="name" placeholder="ইউজারের নাম" required/>
+      <input type="text" name="number" placeholder="হোয়াটসঅ্যাপ নম্বর (যেমন: 88017XXXXXXXX)" required/>
+      <input type="number" name="balance" placeholder="ব্যালেন্স (৳)" value="0" required/>
+      <button class="btn btn-blue" style="padding:10px;">Save User</button>
     </form></div>
-  </body></html>`);
+  </body></html>`); //
 });
 
 app.post("/admin/add-user", adminAuth, async (req, res) => {
-  const { number, name, balance } = req.body;
-  const normalized = normalizeNumber(number);
-  if (!normalized || normalized.length < 11)
-    return res.redirect("/admin/add-user?msg=❌ Invalid number!");
-  const existing = await usersColl.findOne({ number: normalized });
-  if (existing)
-    return res.redirect(`/admin/add-user?msg=❌ ${normalized} ইতোমধ্যে আছে!`);
-  await usersColl.insertOne({ number: normalized, name: name || "User", balance: parseFloat(balance) || 0, active: true, createdAt: new Date() });
-  res.redirect(`/admin/users?msg=✅ ${normalized} যোগ হয়েছে!`);
+  const { name, number, balance } = req.body; //
+  const num = normalizeNumber(number); //
+  await usersColl.updateOne(
+    { number: num },
+    { $set: { name, number: num, balance: parseFloat(balance) || 0, active: true } },
+    { upsert: true }
+  ); //
+  res.redirect("/admin/users"); //
 });
 
-app.post("/admin/balance", adminAuth, async (req, res) => {
-  const { number, amount, action } = req.body;
-  const amt = parseFloat(amount) || 0;
-  if (amt <= 0) return res.redirect("/admin/users?msg=❌ সঠিক পরিমাণ দিন।");
-  const user = await usersColl.findOne({ number: normalizeNumber(number) });
-  if (!user) return res.redirect("/admin/users?msg=❌ ইউজার পাওয়া যায়নি।");
-  if (action === "add") {
-    await usersColl.updateOne({ number: normalizeNumber(number) }, { $inc: { balance: amt } });
-    return res.redirect(`/admin/users?msg=✅ ${amt}৳ যোগ হয়েছে।`);
-  }
-  if (action === "deduct") {
-    await usersColl.updateOne({ number: normalizeNumber(number) }, { $set: { balance: Math.max(0, (user.balance || 0) - amt) } });
-    return res.redirect(`/admin/users?msg=✅ ${amt}৳ কাটা হয়েছে।`);
-  }
-  res.redirect("/admin/users");
+app.get("/admin/edit-user", adminAuth, async (req, res) => {
+  const user = await usersColl.findOne({ number: req.query.number }); //
+  if (!user) return res.send("User not found"); //
+  res.send(`<html><head>${adminCSS}<title>Edit User</title></head><body>
+    <h1>✏️ Edit User / Recharge</h1>${adminNav}
+    <div class="card"><form method="POST" action="/admin/edit-user" style="max-width:400px; display:flex; flex-direction:column; gap:15px;">
+      <input type="hidden" name="oldNumber" value="${user.number}"/>
+      <label><b>নাম:</b></label><input type="text" name="name" value="${user.name || ""}" required/>
+      <label><b>নম্বর:</b></label><input type="text" name="number" value="${user.number}" required/>
+      <label><b>ব্যালেন্স (৳):</b></label><input type="number" step="0.01" name="balance" value="${user.balance || 0}" required/>
+      <label><b>ইউজার স্ট্যাটাস:</b></label>
+      <select name="active">
+        <option value="true" ${user.active !== false ? "selected" : ""}>Active</option>
+        <option value="false" ${user.active === false ? "selected" : ""}>Disabled</option>
+      </select>
+      <button class="btn btn-blue" style="padding:10px;">💾 Update Details</button>
+    </form></div>
+  </body></html>`); //
 });
 
-app.post("/admin/toggle-user", adminAuth, async (req, res) => {
-  const normalized = normalizeNumber(req.body.number);
-  const user = await usersColl.findOne({ number: normalized });
-  if (!user) return res.redirect("/admin/users?msg=❌ ইউজার পাওয়া যায়নি।");
-  const newStatus = user.active === false;
-  await usersColl.updateOne({ number: normalized }, { $set: { active: newStatus } });
-  res.redirect(`/admin/users?msg=✅ ${normalized} ${newStatus ? "Unblock" : "Block"} হয়েছে।`);
+app.post("/admin/edit-user", adminAuth, async (req, res) => {
+  const { oldNumber, name, number, balance, active } = req.body; //
+  const newNum = normalizeNumber(number); //
+  if (oldNumber !== newNum) await usersColl.deleteOne({ number: oldNumber }); //
+  await usersColl.updateOne(
+    { number: newNum },
+    { $set: { name, number: newNum, balance: parseFloat(balance) || 0, active: active === "true" } },
+    { upsert: true }
+  ); //
+  res.redirect("/admin/users"); //
 });
 
-app.post("/admin/delete-user", adminAuth, async (req, res) => {
-  const normalized = normalizeNumber(req.body.number);
-  await usersColl.deleteOne({ number: normalized });
-  await statsColl.deleteOne({ _id: normalized });
-  res.redirect(`/admin/users?msg=✅ ${normalized} ডিলিট হয়েছে।`);
-});
-
+// Logs History
 app.get("/admin/history", adminAuth, async (req, res) => {
-  const filterNum = req.query.number || "";
-  const query     = filterNum ? { number: normalizeNumber(filterNum) } : {};
-  const history   = await historyColl.find(query).sort({ timestamp: -1 }).limit(200).toArray();
-  const rows = history.map(h => `<tr>
-    <td style="white-space:nowrap;font-size:12px">${h.timestamp ? new Date(h.timestamp).toLocaleString() : "—"}</td>
-    <td>${h.number}</td><td>${h.nid}</td><td>${h.dob}</td>
-    <td class="${h.status === "success" ? "badge-active" : "badge-blocked"}">${h.status.toUpperCase()}</td>
-    <td>${h.charge}৳</td><td>${h.balanceAfterCut}৳</td>
-    <td style="font-size:12px"><i>${h.remarks}</i></td>
-  </tr>`).join("");
+  const history = await historyColl.find().sort({ timestamp: -1 }).limit(150).toArray(); //
+  let rows = ""; //
+  history.forEach(h => {
+    rows += `<tr>
+      <td style="white-space:nowrap; font-size:12px">${h.timestamp ? new Date(h.timestamp).toLocaleString() : "—"}</td>
+      <td>${h.number}</td>
+      <td>${h.nid}</td>
+      <td>${h.dob}</td>
+      <td>${h.status === "success" ? "<span style='color:green;font-weight:bold'>Success</span>" : "<span style='color:red;font-weight:bold'>Failed</span>"}</td>
+      <td>${h.charge || 0} ৳</td>
+      <td style="font-size:12px; color:#555;">${h.remarks || "—"}</td>
+    </tr>`; //
+  });
+
   res.send(`<html><head>${adminCSS}<title>History</title></head><body>
-    <h1>📜 History (সর্বশেষ ২০০টি)</h1>${adminNav}
+    <h1>📜 Search History Logs</h1>${adminNav}
     <div class="card">
-      <form method="GET" action="/admin/history" style="display:flex;gap:10px;align-items:center">
-        <input type="text" name="number" value="${filterNum}" placeholder="নম্বর দিয়ে ফিল্টার" style="width:220px"/>
-        <button class="btn btn-blue">Filter</button>
-        ${filterNum ? `<a href="/admin/history" class="btn btn-orange">Clear</a>` : ""}
-      </form>
+      <table>
+        <tr><th>সময় ও তারিখ</th><th>ইউজার নম্বর</th><th>NID নম্বর</th><th>জন্মতারিখ</th><th>অবস্থা</th><th>চার্জ</th><th>মন্তব্য</th></tr>
+        ${rows || "<tr><td colspan='7'>এখনো কোনো হিস্ট্রি রেকর্ড তৈরি হয়নি।</td></tr>"}
+      </table>
     </div>
-    <div class="card"><table>
-      <tr><th>সময়</th><th>নম্বর</th><th>NID</th><th>DOB</th><th>Status</th><th>চার্জ</th><th>বাকি</th><th>মন্তব্য</th></tr>
-      ${rows || "<tr><td colspan='8' style='text-align:center'>কোনো রেকর্ড নেই</td></tr>"}
-    </table></div>
-  </body></html>`);
+  </body></html>`); //
 });
 
+// Admin NID Raw Logs Interface
+app.get("/admin/nidlogs", adminAuth, async (req, res) => {
+  try {
+    const logs = await NidLog.find().sort({ queriedAt: -1 }).limit(100);
+    
+    let rows = "";
+    for (const log of logs) {
+      const base64Data = Buffer.from(JSON.stringify(log.rawResponse || {})).toString("base64");
+      
+      rows += `<tr>
+        <td style="white-space:nowrap;font-size:12px">${log.queriedAt ? new Date(log.queriedAt).toLocaleString() : "—"}</td>
+        <td><b>${log.userNumber || "—"}</b></td>
+        <td>${log.nid || "—"}</td>
+        <td>${log.dob || "—"}</td>
+        <td>
+          <button class="btn btn-blue" onclick="showJsonPopup('${base64Data}')">👁️ View Full JSON</button>
+        </td>
+      </tr>`;
+    }
+
+    res.send(`<html>
+    <head>
+      ${adminCSS}
+      <title>NID Raw Logs</title>
+      <style>
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 70%; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .close:hover { color: #000; }
+        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 5px; overflow-x: auto; max-height: 500px; font-family: 'Courier New', Courier, monospace; text-align: left; }
+      </style>
+    </head>
+    <body>
+      <h1>📂 NID API Raw Responses Logger</h1>
+      ${adminNav}
+      
+      <div class="card">
+        <table>
+          <tr>
+            <th>সময় ও তারিখ</th>
+            <th>ইউজার নম্বর</th>
+            <th>NID নম্বর</th>
+            <th>জন্মতারিখ</th>
+            <th>অ্যাকশন</th>
+          </tr>
+          ${rows || "<tr><td colspan='5' style='text-align:center'>এখনো কোনো সফল/ব্যর্থ API রেসপন্স ব্যাকআপ করা হয়নি।</td></tr>"}
+        </table>
+      </div>
+
+      <div id="jsonModal" class="modal">
+        <div class="modal-content">
+          <span class="close" onclick="closeModal()">&times;</span>
+          <h3>📦 Hubuhu API Response (JSON Format)</h3>
+          <hr>
+          <pre id="jsonWrapper"></pre>
+        </div>
+      </div>
+
+      <script>
+        function showJsonPopup(base64Str) {
+          try {
+            const rawJson = atob(base64Str);
+            const parsedObj = JSON.parse(rawJson);
+            document.getElementById("jsonWrapper").textContent = JSON.stringify(parsedObj, null, 4);
+            document.getElementById("jsonModal").style.display = "block";
+          } catch (e) {
+            alert("Error parsing JSON data: " + e.message);
+          }
+        }
+
+        function closeModal() {
+          document.getElementById("jsonModal").style.display = "none";
+        }
+
+        window.onclick = function(event) {
+          const modal = document.getElementById("jsonModal");
+          if (event.target == modal) {
+            modal.style.display = "none";
+          }
+        }
+      </script>
+    </body>
+    </html>`);
+
+  } catch (error) {
+    res.send(`<html><head>${adminCSS}</head><body><div class="card alert alert-danger">❌ এরর: ${error.message}</div></body></html>`);
+  }
+});
+
+// Settings Management
 app.get("/admin/settings", adminAuth, async (req, res) => {
-  const settings = await settingsColl.findOne({ _id: "bot_settings" });
-  const msg = req.query.msg || "";
+  const settings = await settingsColl.findOne({ _id: "bot_settings" }); //
+  const msg = req.query.msg || ""; //
   res.send(`<html><head>${adminCSS}<title>Settings</title></head><body>
     <h1>⚙️ Settings</h1>${adminNav}
     ${msg ? `<div class="card alert alert-success">${msg}</div>` : ""}
@@ -730,27 +755,24 @@ app.get("/admin/settings", adminAuth, async (req, res) => {
       </table>
       <br><button class="btn btn-blue" style="padding:10px 30px">💾 Save</button>
     </form></div>
-  </body></html>`);
+  </body></html>`); //
 });
 
 app.post("/admin/settings", adminAuth, async (req, res) => {
-  await settingsColl.updateOne({ _id: "bot_settings" }, { $set: { cardPrice: parseFloat(req.body.cardPrice) || 0 } }, { upsert: true });
-  res.redirect("/admin/settings?msg=✅ Saved!");
+  await settingsColl.updateOne({ _id: "bot_settings" }, { $set: { cardPrice: parseFloat(req.body.cardPrice) || 0 } }, { upsert: true }); //
+  res.redirect("/admin/settings?msg=✅ Saved!"); //
 });
 
 app.get("/admin/logout", (req, res) => {
-  const sess = (req.headers.cookie || "").split(";").map(s => s.trim()).find(s => s.startsWith("admin_sess="))?.split("=")[1];
-  if (sess) adminSessions.delete(sess);
-  res.setHeader("Set-Cookie", "admin_sess=; Max-Age=0; Path=/");
-  res.redirect("/admin/login");
+  const sess = (req.headers.cookie || "").split(";").map(s => s.trim()).find(s => s.startsWith("admin_sess="))?.split("=")[1]; //
+  if (sess) adminSessions.delete(sess); //
+  res.setHeader("Set-Cookie", "admin_sess=; Max-Age=0; Path=/; HttpOnly"); //
+  res.redirect("/admin/login"); //
 });
 
-// ========== STARTUP ==========
-(async () => {
-  await connectMongoDB();
-  await loginToPhpSite(); // PDF render এর জন্য
-  app.listen(CONFIG.PORT, () => {
-    console.log(`🚀 NID Bot running on port ${CONFIG.PORT}`);
-    console.log(`📊 Admin: http://localhost:${CONFIG.PORT}/admin`);
-  });
-})();
+// Start Server
+app.listen(CONFIG.PORT, async () => {
+  console.log(`🚀 Server listening on port ${CONFIG.PORT}`); //
+  await connectMongoDB(); //
+  await loginToPhpSite(); //
+});
