@@ -196,117 +196,161 @@ async function searchNIDDirect(nid, dob) {
 }
 
 // ========== PDF RENDER (Puppeteer) ==========
-// server_download_v2_24.php এ ?nid=NID&id=DB_ROW_ID লাগে
-// কিন্তু আমরা DB তে insert করছি না, তাই HTML দিয়ে PDF বানাবো
+// ========== OFFICIAL NID TEMPLATE RENDER (BASE64 PUPPETEER) ==========
 async function renderPDFFromData(nidData) {
   try {
-    const d = nidData.data?.data || nidData.data || {};
+    // সেফ ডেটা স্ট্রাকচার পার্সিং
+    const root = nidData?.data || nidData || {};
+    const d = root.data || root;
 
-    const nameEn      = d.nameEn      || "";
-    const nameBn      = d.name        || "";
-    const nid         = d.nationalId  || "";
-    const pin         = d.pin         || "";
-    const dob         = d.dateOfBirth || "";
-    const father      = d.father      || "";
-    const mother      = d.mother      || "";
+    // এপিআই রেসপন্স ম্যাপ (সার্ভার কপি ভ্যারিয়েবল)
+    const nameEn      = d.nameEn      || "—";
+    const nameBn      = d.name        || d.nameBn || "—";
+    const nid         = d.nationalId  || d.nid || "—";
+    const pin         = d.pin         || "—";
+    const dob         = d.dateOfBirth || d.dob || "—";
+    const father      = d.father      || "—";
+    const mother      = d.mother      || "—";
     const bloodGroup  = d.bloodGroup  || "";
-    const gender      = d.gender      || "";
-    const birthPlace  = d.birthPlace  || "";
-    const oldNid      = d.oldNid      || "";
-    const voterArea   = d.voterArea   || "";
-    const upazilaCode = d.upazilaCode || "";
-    const age         = d.age         || "";
-    const birthDay    = d.birthDay    || "";
-    const presentAddr = d.presentAddress  || "";
-    const permAddr    = d.permanentAddress || "";
-    const photo       = d.photo       || "";
+    const gender      = d.gender      || "—";
+    const birthPlace  = d.birthPlace  || "—";
+    const oldNid      = d.oldNid      || "—";
+    const voterArea   = d.voterArea   || d.voter_aria_code || "—";
+    const upazilaCode = d.upazilaCode || d.upazila_code || "—";
+    const age         = d.age         || d.user_age || "—";
+    const birthDay    = d.birthDay    || d.user_birthDay || "—";
+    const presentAddr = d.presentAddress  || "—";
+    const permAddr    = d.permanentAddress || "—";
+    const photo       = d.photo       || "https://placehold.co/120x140?text=No+Photo";
 
+    // অরিজিনাল server_download_v2_24.php ফাইলের হুবহু অফিশিয়াল টেমপ্লেট
     const html = `<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<title>${nid} - ${nameEn}</title>
-<style>
-  body { font-family: Arial, sans-serif; max-width: 800px; margin: 20px auto; padding: 20px; }
-  .header { background: #1a5276; color: white; padding: 15px; text-align: center; border-radius: 8px; margin-bottom: 20px; }
-  .header h2 { margin: 0; font-size: 20px; }
-  .header p  { margin: 5px 0 0; font-size: 13px; }
-  .section { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
-  .section h3 { margin: 0 0 10px; color: #1a5276; border-bottom: 2px solid #1a5276; padding-bottom: 5px; font-size: 15px; }
-  table { width: 100%; border-collapse: collapse; }
-  td { padding: 6px 10px; font-size: 13px; border-bottom: 1px solid #eee; }
-  td:first-child { font-weight: bold; color: #555; width: 40%; }
-  .photo-box { text-align: center; margin-bottom: 15px; }
-  .photo-box img { width: 120px; height: 140px; border: 2px solid #1a5276; border-radius: 5px; object-fit: cover; }
-  .footer { text-align: center; font-size: 11px; color: #888; margin-top: 20px; }
-</style>
-</head><body>
-<div class="header">
-  <h2>Bangladesh National Identity Card</h2>
-  <p>Election Commission Bangladesh — Server Copy</p>
-</div>
+<html>
+<head>
+	<title>${nid} - ${nameEn}</title>
+	<meta name="viewport" content="initial-scale=1.0, width=device-width"/>
+	<meta charSet="utf-8"/>
+	<link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+	<link href="https://fonts.maateen.me/solaiman-lipi/font.css" rel="stylesheet">
+	<style>
+		body { margin: 0; padding: 0; background-color: #fff; display: flex; justify-content: center; align-items: center; }
+		@media print { html, body { height:100%; margin: 0 !important; padding: 0 !important; overflow: hidden; } }
+		[contenteditable]:focus { outline: none; border: none; }
+		.background { position: relative; width: 1241px; height: 1755px; background: url('${CONFIG.PHP_SITE_BASE_URL}/assets/images/QR_Unofficial.png') no-repeat; background-size: contain; margin: 0 auto; }
+	</style>
+</head>
+<body oncontextmenu="return false;" style="text-align: center;">
+	<div class="background">
+		
+		<div contenteditable="true" style="position: absolute; left: 30%; top: 8%; width: auto; font-size: 16px; color: rgb(255 224 0); font-family: 'Roboto', sans-serif;"><b>National Identity Registration Wing (NIDW)</b></div>
+		<div contenteditable="true" style="position: absolute; left: 37%; top: 11%; width: auto; font-size: 14px; color: rgb(255, 47, 161); font-family: 'Roboto', sans-serif;"><b>Select Your Search Category</b></div>
+		<div contenteditable="true" style="position: absolute; left: 45%; top: 12.8%; width: auto; font-size: 12px; color: rgb(8, 121, 4); font-family: 'Roboto', sans-serif;">Search By NID / Voter No.</div>
+		<div contenteditable="true" style="position: absolute; left: 45%; top: 14.3%; width: auto; font-size: 12px; color: rgb(7, 119, 184); font-family: 'Roboto', sans-serif;">Search By Form No.</div>
+		<div contenteditable="true" style="position: absolute; left: 30%; top: 16.9%; width: auto; font-size: 12px; color: rgb(252, 0, 0); font-family: 'Roboto', sans-serif;"><b>NID or Voter No*</b></div>
+		<div contenteditable="true" style="position: absolute; left: 45%; top: 16.9%; width: auto; font-size: 12px; color: rgb(143, 143, 143); font-family: 'Roboto', sans-serif;">${nid}</div>
+		<div contenteditable="true" style="position: absolute; left: 62.9%; top: 17.1%; width: auto; font-size: 11px; color: rgb(255 255 255); font-family: 'Roboto', sans-serif;">Submit</div>
+		<div contenteditable="true" style="position: absolute; left: 89%; top: 11.55%; width: auto; font-size: 11px; color: #fff; font-family: 'Roboto', sans-serif;">Home</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.5%; top: 27.2%; width: auto; font-size: 16px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"><b>জাতীয় পরিচিতি তথ্য</b></div>
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 30%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">জাতীয় পরিচয় পত্র নম্বর</div>
+		<div id="nid_no" contenteditable="true" style="position: absolute; left: 55%; top: 30%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'Roboto', sans-serif;">${nid}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 32.8%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">পিন নম্বর</div>
+		<div id="pin_no" contenteditable="true" style="position: absolute; left: 55%; top: 32.8%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'Roboto', sans-serif;">${pin}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 35.3%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">পূর্ববর্তী এনআইডি নম্বর</div>
+		<div id="old_nid" contenteditable="true" style="position: absolute; left: 55%; top: 35.3%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">${oldNid}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 37.8%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">উপজেলা কোড</div>
+		<div id="upazila_code" contenteditable="true" style="position: absolute; left: 55%; top: 37.8%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">${upazilaCode}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 40.5%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">ভোটার এলাকা</div>
+		<div id="voter_area" contenteditable="true" style="position: absolute; left: 55%; top: 40.5%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">${voterArea}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.5%; top: 43.3%; width: auto; font-size: 16px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"><b>ব্যক্তিগত তথ্য</b></div>
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 46%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">নাম (বাংলা)</div>
+		<div id="name_bn" contenteditable="true" style="position: absolute; font-weight: bold; left: 55%; top: 46%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"><b>${nameBn}</b></div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 48.8%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">নাম (ইংরেজি)</div>
+		<div id="name_en" contenteditable="true" style="position: absolute; left: 55%; top:48.8%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'Roboto', sans-serif;">${nameEn}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 51.5%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">জন্ম তারিখ</div>
+		<div id="dob" contenteditable="true" style="position: absolute; left: 55%; top: 51.5%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'Roboto', sans-serif;">${dob}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 54.1%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">পিতার নাম</div>
+		<div id="fathers_name" contenteditable="true" style="position: absolute; left: 55%; top: 54.1%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">${father}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 56.7%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">মাতার নাম</div>
+		<div id="mothers_name" contenteditable="true" style="position: absolute; left: 55%; top: 56.7%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">${mother}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 59.2%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">রক্তের গ্রুপ</div>
+		<div id="blood_group" contenteditable="true" style="position: absolute; left: 55%; top: 59.2%; width: auto; font-size: 14px; color: red; font-weight: normal; font-family: 'SolaimanLipi', sans-serif;">${bloodGroup}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.5%; top: 62%; width: auto; font-size: 16px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"><b>অন্যান্য তথ্য</b></div>
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 65.2%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"> বয়স </div>
+		<div id="age_val" contenteditable="true" style="position: absolute; left: 55%; top: 65.2%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">${age}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 68%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">লিঙ্গ </div>
+		<div id="gender" contenteditable="true" style="position: absolute; left: 55%; top: 68%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'Roboto', sans-serif;">${gender}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 70.7%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">জন্মবার</div>
+		<div id="birth_day" contenteditable="true" style="position: absolute; left: 55%; top: 70.7%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">${birthDay}</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 73.2%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">জন্মস্থান</div>
+		<div id="birth_place" contenteditable="true" style="position: absolute; left: 55%; top: 73.2%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">${birthPlace}</div>
+		
+		<div contenteditable="true" style="font-family: 'SolaimanLipi'; position: absolute; left: 37.5%; top: 75.8%; width: auto; font-size: 16px; color: rgb(7, 7, 7);"><b>বর্তমান ঠিকানা</b></div>
+		<div id="present_addr" contenteditable="true" style="font-family: 'SolaimanLipi'; position: absolute; left: 37%; top: 78.2%; width: 48%; font-size: 12.5px; color: rgb(7, 7, 7); text-align: left;">${presentAddr}</div>
+		
+		<div contenteditable="true" style="font-family: 'SolaimanLipi'; position: absolute; left: 37.5%; top: 84.6%; width: auto; font-size: 16px; color: rgb(7, 7, 7);"><b>স্থায়ী ঠিকানা</b></div>
+		<div id="permanent_addr" contenteditable="true" style="font-family: 'SolaimanLipi'; position: absolute; left: 37%; top: 87.3%; width: 48%; font-size: 12.5px; color: rgb(7, 7, 7); text-align: left;">${permAddr}</div>
+		
+		<div contenteditable="true" style="position: absolute; top: 94%; width: 100%; font-size: 12px; text-align: center; color: rgb(255, 0, 0); font-family: 'SolaimanLipi', sans-serif;">উপরে প্রদর্শিত তথ্যসমূহ জাতীয় পরিচয়পত্র সংশ্লিষ্ট, ভোটার তালিকার সাথে সরাসরি সম্পর্কযুক্ত নয়।</div>
+		<div contenteditable="true" style="position: absolute; top: 95.5%; width: 100%; text-align: center; font-size: 12px; color: rgb(3, 3, 3); font-family: 'Roboto', sans-serif;">This is Software Generated Report From Bangladesh Election Commission, Signature &amp; Seal Aren't Required.</div>
+		
+		<div style="position: absolute; left: 16%; top: 25.7%; width: auto;">
+			<img id="photo" src="${photo}" height="140px" width="121px" style="border-radius: 10px; object-fit: cover;" onerror="this.onerror=null; this.src='https://placehold.co/120x140?text=No+Photo'; "/>
+		</div>
+		
+		<div style="position: absolute; left: 18.5%; top: 43%; width: auto;">
+			<img id="qr" src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&amp;data=${encodeURIComponent(nameEn + " " + nid + " " + dob)}" height="85px" width="85px" />
+		</div>
+        
+		<div id="name_en2" contenteditable="true" style="position: absolute; display: flex; font-weight: bold; left: 15.5%; top: 39.8%; height: 32px; width: 130px; font-size: 13px; color: rgb(7, 7, 7); margin: auto; align-items: center; font-family: 'Roboto', sans-serif;" align="center">
+			<div style="flex: 1; text-align: center;">${nameEn}</div>
+		</div>
+	</div>
+</body>
+</html>`;
 
-${photo ? `<div class="photo-box"><img src="${photo}" alt="Photo"/></div>` : ""}
+    // ১. আপনার চাহিদা অনুযায়ী পুরো HTML কে Base64 এ কনভার্ট করা হলো
+    const base64Html = Buffer.from(html).toString("base64");
 
-<div class="section">
-  <h3>🪪 Identity Information</h3>
-  <table>
-    <tr><td>NID Number</td><td>${nid}</td></tr>
-    <tr><td>PIN</td><td>${pin}</td></tr>
-    <tr><td>Old NID</td><td>${oldNid}</td></tr>
-    <tr><td>Upazila Code</td><td>${upazilaCode}</td></tr>
-    <tr><td>Voter Area</td><td>${voterArea}</td></tr>
-  </table>
-</div>
-
-<div class="section">
-  <h3>👤 Personal Information</h3>
-  <table>
-    <tr><td>Name (Bangla)</td><td><b>${nameBn}</b></td></tr>
-    <tr><td>Name (English)</td><td><b>${nameEn}</b></td></tr>
-    <tr><td>Date of Birth</td><td>${dob}</td></tr>
-    <tr><td>Father's Name</td><td>${father}</td></tr>
-    <tr><td>Mother's Name</td><td>${mother}</td></tr>
-    <tr><td>Blood Group</td><td style="color:red;font-weight:bold">${bloodGroup}</td></tr>
-  </table>
-</div>
-
-<div class="section">
-  <h3>ℹ️ Other Information</h3>
-  <table>
-    <tr><td>Age</td><td>${age}</td></tr>
-    <tr><td>Gender</td><td>${gender}</td></tr>
-    <tr><td>Birth Day</td><td>${birthDay}</td></tr>
-    <tr><td>Birth Place</td><td>${birthPlace}</td></tr>
-  </table>
-</div>
-
-<div class="section">
-  <h3>🏠 Present Address</h3>
-  <table><tr><td>${presentAddr}</td></tr></table>
-</div>
-
-<div class="section">
-  <h3>🏡 Permanent Address</h3>
-  <table><tr><td>${permAddr}</td></tr></table>
-</div>
-
-<div class="footer">
-  This is a Software Generated Report from Bangladesh Election Commission.<br>
-  Signature &amp; Seal Are Not Required.
-</div>
-</body></html>`;
-
-    // Puppeteer দিয়ে HTML → PDF
+    // ২. Puppeteer এপিআই-তে রিকোয়েস্ট পাঠানো
     const response = await axios.post(
       CONFIG.EXTERNAL_PUPPETEER_URL,
-      { html, options: { format: "A4", printBackground: true } },
-      { responseType: "arraybuffer", timeout: 60000 }
+      { 
+        base64: base64Html, // Base64 স্ট্রিং পাঠানো হচ্ছে
+        options: { 
+          width: "1241px",    // অরিজিনাল টেমপ্লেটের উইডথ
+          height: "1755px",   // অরিজিনাল টেমপ্লেটের হাইট
+          printBackground: true 
+        } 
+      },
+      { 
+        responseType: "arraybuffer", 
+        timeout: 60000,
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+      }
     );
     return Buffer.from(response.data);
 
   } catch (error) {
     console.error("❌ PDF Render Error:", error.message);
-    throw new Error("PDF তৈরি করা যাচ্ছে না।");
+    throw new Error(`PDF তৈরি করা যাচ্ছে না। (Status: ${error.response?.status || 'Unknown'})`);
   }
 }
 
