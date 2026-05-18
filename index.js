@@ -1,6 +1,6 @@
 /**
  * NID Service Bot - WhatsApp Cloud API Version
- * [DIRECT API CALL — PHP Session Bypass]
+ * [DIRECT API CALL — PHP Session Bypass + MongoDB Raw JSON Logger]
  */
 
 require('dotenv').config();
@@ -9,6 +9,7 @@ const axios = require("axios");
 const crypto = require("crypto");
 const FormData = require("form-data");
 const { MongoClient } = require("mongodb");
+const NidLog = require('./models/NidLog'); // আপনার তৈরি করা Mongoose মডেল ফাইল
 
 // ========== CONFIGURATION ==========
 const CONFIG = {
@@ -173,8 +174,7 @@ async function sendDocument(to, mediaId, filename, caption) {
   }
 }
 
-// ========== DIRECT NID API CALL ==========
-// PHP সাইটের session এর ঝামেলা নেই — সরাসরি API call
+// ========== DIRECT NID API CALL WITH MONGO DB LOGGING ==========
 async function searchNIDDirect(nid, dob) {
   try {
     const url = `${CONFIG.NID_API_URL}?key=${CONFIG.NID_API_KEY}&nid=${nid}&dob=${dob}`;
@@ -187,6 +187,23 @@ async function searchNIDDirect(nid, dob) {
 
     const result = response.data;
     console.log("📦 API Raw Response:", JSON.stringify(result).substring(0, 200));
+
+    // ================== নতুন ডাটাবেজ ব্যাকআপ সিস্টেম শুরু ==================
+    try {
+      // এপিআই থেকে যে রেসপন্সই আসুক (success বা error) তা হুবহু MongoDB তে স্টোর হবে
+      const logEntry = new NidLog({
+        nid: nid,
+        dob: dob,
+        rawResponse: result // সম্পূর্ণ JSON এখানে সেভ হচ্ছে
+      });
+      await logEntry.save();
+      console.log(`✅ NID: ${nid} এর Raw JSON সফলভাবে MongoDB-তে ব্যাকআপ করা হয়েছে।`);
+    } catch (dbError) {
+      // ডাটাবেজ সমস্যার কারণে যাতে মেইন সার্ভিস ব্যাহত না হয়, তাই ট্রাই-ক্যাচ দিয়ে আলাদা হ্যান্ডেল করা হয়েছে
+      console.error("⚠️ MongoDB তে Raw JSON সেভ করতে ব্যর্থ:", dbError.message);
+    }
+    // ================== নতুন ডাটাবেজ ব্যাকআপ সিস্টেম শেষ ==================
+
     return result;
 
   } catch (error) {
