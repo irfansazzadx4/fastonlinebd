@@ -215,7 +215,7 @@ async function searchNIDDirect(nid, dob, from) {
   }
 }
 
-// ========== EXTERNAL PUPPETEER PDF RENDER USING LOCAL BASE64 HTML ==========
+// ========== EXTERNAL PUPPETEER PDF RENDER USING LOCAL HTML ==========
 async function renderPDFLocalTemplate(apiData) {
   try {
     const nid = apiData.data?.nid || "";
@@ -237,7 +237,7 @@ async function renderPDFLocalTemplate(apiData) {
     const permAddr = apiData.data?.permAddr || "";
     const photo = apiData.data?.photo || "";
 
-    // জেনারেট করা HTML টেমপ্লেট (সঠিক স্ট্রাকচার)
+    // জেনারেট করা HTML টেমপ্লেট (সরাসরি ইন্টারনাল রেন্ডারযোগ্য CSS ও অ্যাবসোলিউট লিঙ্কসহ)
     const htmlStructure = `<!DOCTYPE html>
 <html>
 <head>
@@ -247,14 +247,85 @@ async function renderPDFLocalTemplate(apiData) {
 	<link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
 	<link href="https://fonts.maateen.me/solaiman-lipi/font.css" rel="stylesheet">
 	<style>
-		body { margin: 0; padding: 0; background-color: #fff; display: flex; justify-content: center; align-items: center; }
-		@media print { html, body { height:100%; margin: 0 !important; padding: 0 !important; overflow: hidden; } }
-		[contenteditable]:focus { outline: none; border: none; }
-		.background { position: relative; width: 1241px; height: 1755px; background: url('${CONFIG.PHP_SITE_BASE_URL}/assets/images/QR_Unofficial.png') no-repeat; background-size: contain; margin: 0 auto; }
+		body {
+		  margin: 0;
+		  padding: 0;
+		  font-family: "Roboto", sans-serif;
+		  background-color: #fff;
+		  display: flex;
+		  justify-content: center;
+		  align-items: center;
+		  position: relative;
+		}
+		.background {
+		  background-color: lightgrey;
+		  position: relative;
+		  width: 1241px;
+		  height: 1755px;
+		  margin: 0 auto;
+		  text-align: left;
+		}
+		.crane {
+		  max-width: 100%;
+		  height: 100%;
+		}
+		.topTitle {
+		  position: absolute;
+		  left: 21%;
+		  top: 8%;
+		  width: auto;
+		  font-size: 42px;
+		  color: rgb(255, 182, 47);
+		}
+		#loadMe {
+		  visibility: hidden;
+		}
+		[contenteditable]:focus { 
+		  outline: none; 
+		  border: none; 
+		}
+		@media print {
+		  html, body {
+		    height: 100%;
+		    margin: 0 !important;
+		    padding: 0 !important;
+		    overflow: hidden;
+		    background-color: #fff !important;
+		  }
+		  @page {
+		    size: Letter;
+		    margin: 0 !important;
+		  }
+		  .print, #print {
+		    display: none !important;
+		  }
+		}
+		#print {
+		  background: #03a9f4;
+		  padding: 8px;
+		  width: 700px;
+		  height: 40px;
+		  border: 0px;
+		  font-size: 25px;
+		  font-weight: bold;
+		  cursor: pointer;
+		  box-shadow: 1px 4px 4px #878787;
+		  color: #fff;
+		  border-radius: 10px;
+		  margin: 80px 0;
+		  display: none;
+		}
+		@font-face {
+		  font-family: Bangla;
+		  src: url("https://auto.onlinebd.top/fonts/Bangla.ttf") format("truetype");
+		  font-weight: 400;
+		  font-style: normal;
+		}
 	</style>
 </head>
 <body oncontextmenu="return false;" style="text-align: center;">
 	<div class="background">
+		<img class="crane" src="${CONFIG.PHP_SITE_BASE_URL}/assets/images/QR_Unofficial.png" height="1755" width="1241">
 		
 		<div contenteditable="true" style="position: absolute; left: 30%; top: 8%; width: auto; font-size: 16px; color: rgb(255 224 0); font-family: 'Roboto', sans-serif;"><b>National Identity Registration Wing (NIDW)</b></div>
 		<div contenteditable="true" style="position: absolute; left: 37%; top: 11%; width: auto; font-size: 14px; color: rgb(255, 47, 161); font-family: 'Roboto', sans-serif;"><b>Select Your Search Category</b></div>
@@ -380,7 +451,7 @@ async function handleIncoming(msgObj) {
   await markRead(msgId);
 
   if (text.toLowerCase() === "start" || text.toLowerCase() === "menu") {
-    await sendText(from, "👋 আমাদের NID সার্ভিস বোটে আপনাকে स्वागतম!\n\nকার্ড বের করতে নিচে দেওয়া ফরম্যাটে মেসেজ দিন:\n*NID_NUMBER DOB*\n\nউদাহরণ:\n_6014203332 1996-01-20_");
+    await sendText(from, "👋 আমাদের NID সার্ভিস বোটে আপনাকে স্বাগতম!\n\nকার্ড বের করতে নিচে দেওয়া ফরম্যাটে মেসেজ দিন:\n*NID_NUMBER DOB*\n\nউদাহরণ:\n_6014203332 1996-01-20_");
     return;
   }
 
@@ -406,7 +477,7 @@ async function handleIncoming(msgObj) {
   const price = await getCardPrice();
 
   if (balance < price) {
-    await sendText(from, `⚠️ আপনার পর্যাপ্ত ব্যালেন্স নেই।\nপ্রয়োজন: ${price} ৳\nআপনাক ব্যালেন্স: ${balance} ৳\n\nদয়া করে রিচার্জ করতে অ্যাডমিনের সাথে যোগাযোগ করুন।`);
+    await sendText(from, `⚠️ আপনার পর্যাপ্ত ব্যালেন্স নেই।\nপ্রয়োজন: ${price} ৳\nআপনার ব্যালেন্স: ${balance} ৳\n\nদয়া করে রিচার্জ করতে অ্যাডমিনের সাথে যোগাযোগ করুন।`);
     return;
   }
 
