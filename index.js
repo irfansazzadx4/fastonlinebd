@@ -1,6 +1,6 @@
 /**
  * NID Service Bot - WhatsApp Cloud API Version
- * [FULLY FIXED + USER MANAGEMENT SYSTEM]
+ * [DIRECT API CALL — PHP Session Bypass]
  */
 
 require('dotenv').config();
@@ -18,9 +18,16 @@ const CONFIG = {
   WA_PHONE_ID: process.env.WHATSAPP_PHONE_ID,
   WA_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN || "myVerifyToken123",
   WA_API_VERSION: "v21.0",
+
+  // Direct NID API (PHP সাইটের ভেতরের API)
+  NID_API_KEY: process.env.NID_API_KEY || "arthur69",
+  NID_API_URL: process.env.NID_API_URL || "https://api.server24x.site/unofficial/api.php",
+
+  // PDF render এর জন্য PHP সাইট (session সহ)
   PHP_SITE_BASE_URL: process.env.PHP_SITE_BASE_URL || "https://my-gov-bd.site",
   PHP_BOT_EMAIL: process.env.PHP_BOT_EMAIL || "irfanbot@gmail.com",
   PHP_BOT_PASS: process.env.PHP_BOT_PASS || "p@@ss: irfan2002",
+
   EXTERNAL_PUPPETEER_URL: process.env.EXTERNAL_PUPPETEER_URL || "https://pupeeter-production-2b39.up.railway.app/pdf",
   MONGO_URI: process.env.MONGO_URI || "mongodb+srv://sazzadpc4_db_user:Xr53oHTfLujIKDlw@cluster0.agynr2o.mongodb.net/nid_whatsapp_bot?retryWrites=true&w=majority&appName=Cluster0",
 };
@@ -29,7 +36,6 @@ const CONFIG = {
 let db, usersColl, statsColl, settingsColl, historyColl;
 let phpSessionCookies = "";
 
-// ========== WA HELPERS (Function — env loaded হওয়ার পরে call হয়) ==========
 function getWaBase() {
   return `https://graph.facebook.com/${CONFIG.WA_API_VERSION}/${CONFIG.WA_PHONE_ID}`;
 }
@@ -56,7 +62,7 @@ async function connectMongoDB() {
   }
 }
 
-// ========== PHP SITE LOGIN ==========
+// ========== PHP SITE LOGIN (শুধু PDF render এর জন্য) ==========
 async function loginToPhpSite() {
   try {
     console.log("🔐 PHP সাইটে লগইন করা হচ্ছে...");
@@ -86,7 +92,7 @@ async function loginToPhpSite() {
     if (error.response?.headers["set-cookie"]) {
       phpSessionCookies = error.response.headers["set-cookie"]
         .map(c => c.split(";")[0]).join("; ");
-      console.log("✅ লগইন সফল (302 Redirect থেকে কুকি ক্যাপচার)।");
+      console.log("✅ লগইন সফল (302 Redirect)।");
       return true;
     }
     console.error("❌ লগইন ব্যর্থ:", error.message);
@@ -124,7 +130,7 @@ async function logToHistory(number, nid, dob, status, charge, balanceAfter, rema
   });
 }
 
-// ========== WHATSAPP API WRAPPERS ==========
+// ========== WHATSAPP API ==========
 async function sendText(to, body) {
   try {
     await axios.post(`${getWaBase()}/messages`, {
@@ -167,68 +173,140 @@ async function sendDocument(to, mediaId, filename, caption) {
   }
 }
 
-// ========== NID SEARCH ==========
-// FIX: isRetry flag দিয়ে infinite loop বন্ধ, HTML response সঠিকভাবে handle
-async function searchNIDOnServer(nid, dob, isRetry = false) {
+// ========== DIRECT NID API CALL ==========
+// PHP সাইটের session এর ঝামেলা নেই — সরাসরি API call
+async function searchNIDDirect(nid, dob) {
   try {
-    if (!phpSessionCookies) await loginToPhpSite();
+    const url = `${CONFIG.NID_API_URL}?key=${CONFIG.NID_API_KEY}&nid=${nid}&dob=${dob}`;
+    console.log(`🔍 Direct API call: ${url}`);
 
-    const params = new URLSearchParams();
-    params.append("nid", nid);
-    params.append("dob", dob);
+    const response = await axios.get(url, {
+      timeout: 50000,
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
 
-    const response = await axios.post(
-      `${CONFIG.PHP_SITE_BASE_URL}/insert_un_server_24.php`,
-      params.toString(),
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Cookie: phpSessionCookies,
-        },
-        timeout: 50000,
-      }
-    );
-
-    const data = response.data;
-
-    // HTML response মানে session expired — JSON parse এর আগেই ধরা
-    if (typeof data === "string" && data.trim().startsWith("<")) {
-      console.log("⚠️ HTML response এসেছে (session expired)।");
-      if (isRetry) {
-        return { status: "error", message: "PHP সাইট বারবার HTML দিচ্ছে। সাইট ডাউন বা লগইন সমস্যা।" };
-      }
-      console.log("🔄 Re-login করা হচ্ছে...");
-      await loginToPhpSite();
-      return await searchNIDOnServer(nid, dob, true);
-    }
-
-    return data;
+    const result = response.data;
+    console.log("📦 API Raw Response:", JSON.stringify(result).substring(0, 200));
+    return result;
 
   } catch (error) {
-    console.error("Search Error:", error.message);
-    if (!isRetry && error.response && (error.response.status === 401 || error.response.status === 302)) {
-      console.log("🔄 401/302 — Re-login করা হচ্ছে...");
-      await loginToPhpSite();
-      return await searchNIDOnServer(nid, dob, true);
-    }
-    return { status: "error", message: "ওয়েবসাইট ব্যাকএন্ডে কানেক্ট করা যাচ্ছে না।" };
+    console.error("❌ Direct API Error:", error.message);
+    return { status: "error", message: "NID API সার্ভারে কানেক্ট করা যাচ্ছে না।" };
   }
 }
 
-// ========== PDF RENDER ==========
-async function renderNIDViaExternalService(nid, dob) {
-  const targetUrl = `${CONFIG.PHP_SITE_BASE_URL}/server_download_v2_24.php?nid=${nid}&id=${dob}`;
-  console.log(`📡 External Puppeteer request: ${targetUrl}`);
+// ========== PDF RENDER (Puppeteer) ==========
+// server_download_v2_24.php এ ?nid=NID&id=DB_ROW_ID লাগে
+// কিন্তু আমরা DB তে insert করছি না, তাই HTML দিয়ে PDF বানাবো
+async function renderPDFFromData(nidData) {
   try {
+    const d = nidData.data?.data || nidData.data || {};
+
+    const nameEn      = d.nameEn      || "";
+    const nameBn      = d.name        || "";
+    const nid         = d.nationalId  || "";
+    const pin         = d.pin         || "";
+    const dob         = d.dateOfBirth || "";
+    const father      = d.father      || "";
+    const mother      = d.mother      || "";
+    const bloodGroup  = d.bloodGroup  || "";
+    const gender      = d.gender      || "";
+    const birthPlace  = d.birthPlace  || "";
+    const oldNid      = d.oldNid      || "";
+    const voterArea   = d.voterArea   || "";
+    const upazilaCode = d.upazilaCode || "";
+    const age         = d.age         || "";
+    const birthDay    = d.birthDay    || "";
+    const presentAddr = d.presentAddress  || "";
+    const permAddr    = d.permanentAddress || "";
+    const photo       = d.photo       || "";
+
+    const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>${nid} - ${nameEn}</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 800px; margin: 20px auto; padding: 20px; }
+  .header { background: #1a5276; color: white; padding: 15px; text-align: center; border-radius: 8px; margin-bottom: 20px; }
+  .header h2 { margin: 0; font-size: 20px; }
+  .header p  { margin: 5px 0 0; font-size: 13px; }
+  .section { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
+  .section h3 { margin: 0 0 10px; color: #1a5276; border-bottom: 2px solid #1a5276; padding-bottom: 5px; font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 6px 10px; font-size: 13px; border-bottom: 1px solid #eee; }
+  td:first-child { font-weight: bold; color: #555; width: 40%; }
+  .photo-box { text-align: center; margin-bottom: 15px; }
+  .photo-box img { width: 120px; height: 140px; border: 2px solid #1a5276; border-radius: 5px; object-fit: cover; }
+  .footer { text-align: center; font-size: 11px; color: #888; margin-top: 20px; }
+</style>
+</head><body>
+<div class="header">
+  <h2>Bangladesh National Identity Card</h2>
+  <p>Election Commission Bangladesh — Server Copy</p>
+</div>
+
+${photo ? `<div class="photo-box"><img src="${photo}" alt="Photo"/></div>` : ""}
+
+<div class="section">
+  <h3>🪪 Identity Information</h3>
+  <table>
+    <tr><td>NID Number</td><td>${nid}</td></tr>
+    <tr><td>PIN</td><td>${pin}</td></tr>
+    <tr><td>Old NID</td><td>${oldNid}</td></tr>
+    <tr><td>Upazila Code</td><td>${upazilaCode}</td></tr>
+    <tr><td>Voter Area</td><td>${voterArea}</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>👤 Personal Information</h3>
+  <table>
+    <tr><td>Name (Bangla)</td><td><b>${nameBn}</b></td></tr>
+    <tr><td>Name (English)</td><td><b>${nameEn}</b></td></tr>
+    <tr><td>Date of Birth</td><td>${dob}</td></tr>
+    <tr><td>Father's Name</td><td>${father}</td></tr>
+    <tr><td>Mother's Name</td><td>${mother}</td></tr>
+    <tr><td>Blood Group</td><td style="color:red;font-weight:bold">${bloodGroup}</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>ℹ️ Other Information</h3>
+  <table>
+    <tr><td>Age</td><td>${age}</td></tr>
+    <tr><td>Gender</td><td>${gender}</td></tr>
+    <tr><td>Birth Day</td><td>${birthDay}</td></tr>
+    <tr><td>Birth Place</td><td>${birthPlace}</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>🏠 Present Address</h3>
+  <table><tr><td>${presentAddr}</td></tr></table>
+</div>
+
+<div class="section">
+  <h3>🏡 Permanent Address</h3>
+  <table><tr><td>${permAddr}</td></tr></table>
+</div>
+
+<div class="footer">
+  This is a Software Generated Report from Bangladesh Election Commission.<br>
+  Signature &amp; Seal Are Not Required.
+</div>
+</body></html>`;
+
+    // Puppeteer দিয়ে HTML → PDF
     const response = await axios.post(
       CONFIG.EXTERNAL_PUPPETEER_URL,
-      { url: targetUrl, cookies: phpSessionCookies, options: { format: "A4", printBackground: true } },
+      { html, options: { format: "A4", printBackground: true } },
       { responseType: "arraybuffer", timeout: 60000 }
     );
     return Buffer.from(response.data);
+
   } catch (error) {
-    console.error("❌ Puppeteer Error:", error.message);
-    throw new Error("এক্সটার্নাল PDF ইঞ্জিন সাড়া দিচ্ছে না।");
+    console.error("❌ PDF Render Error:", error.message);
+    throw new Error("PDF তৈরি করা যাচ্ছে না।");
   }
 }
 
@@ -242,7 +320,6 @@ async function handleIncoming(msg) {
 
   const text      = msg.text.body.trim();
   const lowerText = text.toLowerCase();
-
   console.log(`📩 [${from}]: "${text}"`);
 
   if (lowerText === "ping" || lowerText === ".ping")
@@ -271,48 +348,54 @@ async function handleIncoming(msg) {
     const price          = await getCardPrice();
     const currentBalance = await getUserBalance(from);
     const nid            = hasNid[0];
-    const dob            = hasDob[0];
+
+    // DOB normalize — DD-MM-YYYY → YYYY-MM-DD
+    let dob = hasDob[0];
+    const dobParts = dob.split("-");
+    if (dobParts[0].length === 2) {
+      dob = `${dobParts[2]}-${dobParts[1]}-${dobParts[0]}`;
+    }
 
     if (price > 0 && currentBalance < price) {
       await logToHistory(from, nid, dob, "failed", 0, currentBalance, "Insufficient Balance");
       return sendText(from, `❌ ব্যালেন্স কম!\n\nপ্রয়োজন: ${price} টাকা\nআপনার ব্যালেন্স: ${currentBalance} টাকা`);
     }
 
-    await sendText(from, `🔍 NID: ${nid} সার্ভারে খোঁজা হচ্ছে...\n\nঅনুগ্রহ করে একটু অপেক্ষা করুন।`);
+    await sendText(from, `🔍 NID: ${nid} খোঁজা হচ্ছে...\nঅনুগ্রহ করে একটু অপেক্ষা করুন।`);
 
     try {
-      const searchResult = await searchNIDOnServer(nid, dob);
+      // ✅ সরাসরি API call — PHP session এর ঝামেলা নেই
+      const result = await searchNIDDirect(nid, dob);
 
-      // Safe JSON parse
-      let result;
-      if (typeof searchResult === "string") {
-        try {
-          result = JSON.parse(searchResult);
-        } catch {
-          console.error("JSON parse failed:", searchResult.substring(0, 200));
-          await logToHistory(from, nid, dob, "failed", 0, currentBalance, "Invalid JSON from server");
-          return sendText(from, "❌ সার্ভার অপ্রত্যাশিত response দিয়েছে। আবার চেষ্টা করুন।");
-        }
-      } else {
-        result = searchResult;
+      // API success check (insert_un_server_24.php এর মতো)
+      const isSuccess =
+        result?.status &&
+        result.status.toLowerCase() === "success" &&
+        result?.data?.response &&
+        result.data.response.toLowerCase() === "success";
+
+      if (!isSuccess) {
+        const errMsg = result?.message || result?.data?.message || "তথ্য পাওয়া যায়নি বা NID/DOB ভুল।";
+        await logToHistory(from, nid, dob, "failed", 0, currentBalance, `API Error: ${errMsg}`);
+        return sendText(from, `❌ তথ্য পাওয়া যায়নি!\n\n"${errMsg}"\n\n[ব্যালেন্স কাটা হয়নি]`);
       }
 
-      if (result.status === "error" || result.status === "failed") {
-        const errMsg = result.message || "তথ্য পাওয়া যায়নি বা সার্ভার ব্যালেন্স শেষ।";
-        await logToHistory(from, nid, dob, "failed", 0, currentBalance, `Server Error: ${errMsg}`);
-        return sendText(from, `❌ সার্ভার এরর:\n\n"${errMsg}"\n\n[ব্যালেন্স কাটা হয়নি]`);
-      }
+      const d      = result.data.data;
+      const nameEn = d.nameEn || "Unknown";
+      const nameBn = d.name   || "";
 
-      await sendText(from, `📥 তথ্য পাওয়া গেছে! PDF তৈরি হচ্ছে...`);
-      const pdfBuffer = await renderNIDViaExternalService(nid, dob);
+      await sendText(from, `✅ তথ্য পাওয়া গেছে!\n\n👤 ${nameBn} (${nameEn})\n\n📄 PDF তৈরি হচ্ছে...`);
 
+      const pdfBuffer = await renderPDFFromData(result);
+
+      // Balance কাটা
       const finalBalance = currentBalance - price;
       await usersColl.updateOne(
         { number: normalizeNumber(from) },
         { $set: { balance: finalBalance } }
       );
 
-      await logToHistory(from, nid, dob, "success", price, finalBalance, "Generated via External Railway Puppeteer");
+      await logToHistory(from, nid, dob, "success", price, finalBalance, `Direct API Success: ${nameEn}`);
       await statsColl.updateOne(
         { _id: normalizeNumber(from) },
         { $inc: { count: 1 }, $set: { lastUsed: new Date() } },
@@ -320,14 +403,15 @@ async function handleIncoming(msg) {
       );
 
       const filename = `nid-${nid}.pdf`;
-      const caption  = `✅ NID সার্ভার কপি তৈরি হয়েছে!\n\n🆔 NID: ${nid}\n🎂 DOB: ${dob}${price > 0 ? `\n💰 বাকি ব্যালেন্স: ${finalBalance} টাকা` : ""}`;
-      const mediaId  = await uploadMedia(pdfBuffer, filename, "application/pdf");
+      const caption  = `✅ NID সার্ভার কপি তৈরি হয়েছে!\n\n🆔 NID: ${nid}\n👤 ${nameBn}\n🎂 DOB: ${dob}${price > 0 ? `\n💰 বাকি ব্যালেন্স: ${finalBalance} টাকা` : ""}`;
+
+      const mediaId = await uploadMedia(pdfBuffer, filename, "application/pdf");
       await sendDocument(from, mediaId, filename, caption);
 
     } catch (err) {
       console.error("Flow Error:", err.message);
       await logToHistory(from, nid, dob, "failed", 0, currentBalance, `Crash: ${err.message}`);
-      await sendText(from, `❌ প্রসেসিং এরর! আবার চেষ্টা করুন।\n${err.message}`);
+      await sendText(from, `❌ প্রসেসিং এরর!\n${err.message}`);
     }
     return;
   }
@@ -494,7 +578,7 @@ app.get("/admin/add-user", adminAuth, async (req, res) => {
       <table style="max-width:500px">
         <tr><td><b>WhatsApp Number</b></td><td><input type="text" name="number" placeholder="01712345678" style="width:250px" required/></td></tr>
         <tr><td><b>নাম</b></td><td><input type="text" name="name" placeholder="নাম" style="width:250px"/></td></tr>
-        <tr><td><b>Balance</b></td><td><input type="number" name="balance" value="0" style="width:120px"/></td></tr>
+        <tr><td><b>Balance (৳)</b></td><td><input type="number" name="balance" value="0" style="width:120px"/></td></tr>
       </table>
       <br><button class="btn btn-blue" style="padding:10px 30px">যোগ করুন</button>
     </form></div>
@@ -603,7 +687,7 @@ app.get("/admin/logout", (req, res) => {
 // ========== STARTUP ==========
 (async () => {
   await connectMongoDB();
-  await loginToPhpSite();
+  await loginToPhpSite(); // PDF render এর জন্য
   app.listen(CONFIG.PORT, () => {
     console.log(`🚀 NID Bot running on port ${CONFIG.PORT}`);
     console.log(`📊 Admin: http://localhost:${CONFIG.PORT}/admin`);
