@@ -31,6 +31,7 @@ const CONFIG = {
   PHP_BOT_PASS: process.env.PHP_BOT_PASS || "p@@ss: irfan2002",
 
   EXTERNAL_PUPPETEER_URL: process.env.EXTERNAL_PUPPETEER_URL || "https://pupeeter-production-2b39.up.railway.app/pdf",
+  PUPPETEER_SECRET: process.env.PUPPETEER_SECRET || "nid_pdf_secret_2025",
   MONGO_URI: process.env.MONGO_URI || "mongodb+srv://sazzadpc4_db_user:Xr53oHTfLujIKDlw@cluster0.agynr2o.mongodb.net/nid_whatsapp_bot?retryWrites=true&w=majority&appName=Cluster0",
 };
 
@@ -39,10 +40,10 @@ let db, usersColl, statsColl, settingsColl, historyColl;
 let phpSessionCookies = "";
 
 function getWaBase() {
-  return `https://graph.facebook.com/${CONFIG.WA_API_VERSION}/${CONFIG.WA_PHONE_ID}`; //
+  return `https://graph.facebook.com/${CONFIG.WA_API_VERSION}/${CONFIG.WA_PHONE_ID}`;
 }
 function getWaHeaders() {
-  return { Authorization: `Bearer ${CONFIG.WA_TOKEN}`, "Content-Type": "application/json" }; //
+  return { Authorization: `Bearer ${CONFIG.WA_TOKEN}`, "Content-Type": "application/json" };
 }
 
 // ========== MONGODB & MONGOOSE CONNECTION ==========
@@ -60,137 +61,137 @@ async function connectMongoDB() {
     await mongoose.connect(CONFIG.MONGO_URI);
     console.log("✅ Mongoose Connected for NidLog.");
 
-    const settings = await settingsColl.findOne({ _id: "bot_settings" }); //
-    if (!settings) await settingsColl.insertOne({ _id: "bot_settings", cardPrice: 10 }); //
+    const settings = await settingsColl.findOne({ _id: "bot_settings" });
+    if (!settings) await settingsColl.insertOne({ _id: "bot_settings", cardPrice: 10 });
   } catch (e) {
-    console.error("❌ MongoDB/Mongoose Connection Failed:", e.message); //
-    process.exit(1); //
+    console.error("❌ MongoDB/Mongoose Connection Failed:", e.message);
+    process.exit(1);
   }
 }
 
 // ========== PHP SITE LOGIN ==========
 async function loginToPhpSite() {
   try {
-    console.log("🔐 PHP সাইটে লগইন করা হচ্ছে..."); //
-    const params = new URLSearchParams(); //
-    params.append("email",    CONFIG.PHP_BOT_EMAIL); //
-    params.append("password", CONFIG.PHP_BOT_PASS); //
-    params.append("login",    "submit"); //
+    console.log("🔐 PHP সাইটে লগইন করা হচ্ছে...");
+    const params = new URLSearchParams();
+    params.append("email",    CONFIG.PHP_BOT_EMAIL);
+    params.append("password", CONFIG.PHP_BOT_PASS);
+    params.append("login",    "submit");
 
     const response = await axios.post(
-      `${CONFIG.PHP_SITE_BASE_URL}/index.php`, //
+      `${CONFIG.PHP_SITE_BASE_URL}/index.php`,
       params.toString(),
       {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" }, //
-        maxRedirects: 0, //
-        validateStatus: (s) => s >= 200 && s < 400, //
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        maxRedirects: 0,
+        validateStatus: (s) => s >= 200 && s < 400,
       }
     );
 
-    const cookies = response.headers["set-cookie"]; //
+    const cookies = response.headers["set-cookie"];
     if (cookies?.length > 0) {
-      phpSessionCookies = cookies.map(c => c.split(";")[0]).join("; "); //
-      console.log("✅ লগইন সফল। কুকি:", phpSessionCookies); //
-      return true; //
+      phpSessionCookies = cookies.map(c => c.split(";")[0]).join("; ");
+      console.log("✅ লগইন সফল। কুকি:", phpSessionCookies);
+      return true;
     }
-    return false; //
+    return false;
   } catch (error) {
     if (error.response?.headers["set-cookie"]) {
-      phpSessionCookies = error.response.headers["set-cookie"] //
-        .map(c => c.split(";")[0]).join("; "); //
-      console.log("✅ লগইন সফল (302 Redirect)।"); //
-      return true; //
+      phpSessionCookies = error.response.headers["set-cookie"]
+        .map(c => c.split(";")[0]).join("; ");
+      console.log("✅ লগইন সফল (302 Redirect)।");
+      return true;
     }
-    console.error("❌ লগইন ব্যর্থ:", error.message); //
-    return false; //
+    console.error("❌ লগইন ব্যর্থ:", error.message);
+    return false;
   }
 }
 
 // ========== USER HELPERS ==========
 function normalizeNumber(num) {
-  let n = String(num).replace(/\D/g, ""); //
-  if (n.startsWith("0"))                       n = "880" + n.slice(1); //
-  if (!n.startsWith("880") && n.length === 10) n = "880" + n; //
-  return n; //
+  let n = String(num).replace(/\D/g, "");
+  if (n.startsWith("0"))                       n = "880" + n.slice(1);
+  if (!n.startsWith("880") && n.length === 10) n = "880" + n;
+  return n;
 }
 
 async function isAllowed(number) {
-  const user = await usersColl.findOne({ number: normalizeNumber(number) }); //
-  return user && user.active !== false; //
+  const user = await usersColl.findOne({ number: normalizeNumber(number) });
+  return user && user.active !== false;
 }
 
 async function getUserBalance(number) {
-  const user = await usersColl.findOne({ number: normalizeNumber(number) }); //
-  return user ? (user.balance || 0) : 0; //
+  const user = await usersColl.findOne({ number: normalizeNumber(number) });
+  return user ? (user.balance || 0) : 0;
 }
 
 async function getCardPrice() {
-  const s = await settingsColl.findOne({ _id: "bot_settings" }); //
-  return s ? s.cardPrice : 0; //
+  const s = await settingsColl.findOne({ _id: "bot_settings" });
+  return s ? s.cardPrice : 0;
 }
 
 async function logToHistory(number, nid, dob, status, charge, balanceAfter, remarks) {
   await historyColl.insertOne({
-    number: normalizeNumber(number), nid, dob, status, //
-    charge, balanceAfterCut: balanceAfter, remarks, timestamp: new Date(), //
+    number: normalizeNumber(number), nid, dob, status,
+    charge, balanceAfterCut: balanceAfter, remarks, timestamp: new Date(),
   });
 }
 
 // ========== WHATSAPP API ==========
 async function sendText(to, body) {
   try {
-    await axios.post(`${getWaBase()}/messages`, { //
-      messaging_product: "whatsapp", to, type: "text", text: { body }, //
-    }, { headers: getWaHeaders() }); //
-    console.log(`📤 Sent to ${to}`); //
+    await axios.post(`${getWaBase()}/messages`, {
+      messaging_product: "whatsapp", to, type: "text", text: { body },
+    }, { headers: getWaHeaders() });
+    console.log(`📤 Sent to ${to}`);
   } catch (e) {
-    console.error("❌ sendText error:", e.response?.data || e.message); //
+    console.error("❌ sendText error:", e.response?.data || e.message);
   }
 }
 
 async function markRead(messageId) {
   try {
-    await axios.post(`${getWaBase()}/messages`, { //
-      messaging_product: "whatsapp", status: "read", message_id: messageId, //
-    }, { headers: getWaHeaders() }); //
+    await axios.post(`${getWaBase()}/messages`, {
+      messaging_product: "whatsapp", status: "read", message_id: messageId,
+    }, { headers: getWaHeaders() });
   } catch {}
 }
 
 async function uploadMedia(buffer, filename, mimetype) {
-  const form = new FormData(); //
-  form.append("messaging_product", "whatsapp"); //
-  form.append("file", buffer, { filename, contentType: mimetype }); //
-  form.append("type", mimetype); //
-  const res = await axios.post(`${getWaBase()}/media`, form, { //
-    headers: { ...form.getHeaders(), Authorization: `Bearer ${CONFIG.WA_TOKEN}` }, //
-    maxContentLength: Infinity, maxBodyLength: Infinity, //
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("file", buffer, { filename, contentType: mimetype });
+  form.append("type", mimetype);
+  const res = await axios.post(`${getWaBase()}/media`, form, {
+    headers: { ...form.getHeaders(), Authorization: `Bearer ${CONFIG.WA_TOKEN}` },
+    maxContentLength: Infinity, maxBodyLength: Infinity,
   });
-  return res.data.id; //
+  return res.data.id;
 }
 
 async function sendDocument(to, mediaId, filename, caption) {
   try {
-    await axios.post(`${getWaBase()}/messages`, { //
-      messaging_product: "whatsapp", to, type: "document", //
-      document: { id: mediaId, filename, caption }, //
-    }, { headers: getWaHeaders() }); //
+    await axios.post(`${getWaBase()}/messages`, {
+      messaging_product: "whatsapp", to, type: "document",
+      document: { id: mediaId, filename, caption },
+    }, { headers: getWaHeaders() });
   } catch (e) {
-    console.error("sendDocument error:", e.response?.data || e.message); //
+    console.error("sendDocument error:", e.response?.data || e.message);
   }
 }
 
 // ========== DIRECT NID API CALL WITH MONGO DB LOGGING ==========
 async function searchNIDDirect(nid, dob, from) {
   try {
-    const url = `${CONFIG.NID_API_URL}?key=${CONFIG.NID_API_KEY}&nid=${nid}&dob=${dob}`; //
-    console.log(`🔍 Direct API call: ${url}`); //
+    const url = `${CONFIG.NID_API_URL}?key=${CONFIG.NID_API_KEY}&nid=${nid}&dob=${dob}`;
+    console.log(`🔍 Direct API call: ${url}`);
 
     const response = await axios.get(url, {
-      timeout: 50000, //
-      headers: { "User-Agent": "Mozilla/5.0" }, //
+      timeout: 50000,
+      headers: { "User-Agent": "Mozilla/5.0" },
     });
 
-    const result = response.data; //
+    const result = response.data;
 
     // MongoDB তে Raw JSON ব্যাকআপ সেভ
     try {
@@ -206,18 +207,17 @@ async function searchNIDDirect(nid, dob, from) {
       console.error("⚠️ MongoDB তে Raw JSON সেভ করতে ব্যর্থ:", dbError.message);
     }
 
-    return result; //
+    return result;
 
   } catch (error) {
-    console.error("❌ Direct API Error:", error.message); //
-    return { status: "error", message: "NID API সার্ভারে কানেক্ট করা যাচ্ছে না।" }; //
+    console.error("❌ Direct API Error:", error.message);
+    return { status: "error", message: "NID API সার্ভারে কানেক্ট করা যাচ্ছে না।" };
   }
 }
 
 // ========== EXTERNAL PUPPETEER PDF RENDER USING LOCAL BASE64 HTML ==========
 async function renderPDFLocalTemplate(apiData) {
   try {
-    // API রেসপন্স থেকে ডেটা ডিক্লেয়ারেশন
     const nid = apiData.data?.nid || "";
     const pin = apiData.data?.pin || "";
     const oldNid = apiData.data?.oldNid || "-";
@@ -237,60 +237,7 @@ async function renderPDFLocalTemplate(apiData) {
     const permAddr = apiData.data?.permAddr || "";
     const photo = apiData.data?.photo || "";
 
-    // অরিজিনাল server_download_v2_24.php ফাইলের হুবহু অফিশিয়াল টেমপ্লেট
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-	<title>${nid} - ${nameEn}</title>
-	<meta name="viewport" content="initial-scale=1.0, width=device-width"/>
-	<meta charSet="utf-8"/>
-	<link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
-	<link href="https://fonts.maateen.me/solaiman-lipi/font.css" rel="stylesheet">
-	<style>
-		body { margin: 0; padding: 0; background-color: #fff; display: flex; justify-content: center; align-items: center; }
-		@media print { html, body { height:100%; margin: 0 !important; padding: 0 !important; overflow: hidden; } }
-		[contenteditable]:focus { outline: none; border: none; }
-		.background { position: relative; width: 1241px; height: 1755px; background: url('${CONFIG.PHP_SITE_BASE_URL}/assets/images/QR_Unofficial.png') no-repeat; background-size: contain; margin: 0 auto; }
-	</style>
-</head>
-<body oncontextmenu="return false;" style="text-align: center;">
-	<div class="background">
-		
-		<div contenteditable="true" style="position: absolute; left: 30%; top: 8%; width: auto; font-size: 16px; color: rgb(255 224 0); font-family: 'Roboto', sans-serif;"><b>National Identity Registration Wing (NIDW)</b></div>
-		<div contenteditable="true" style="position: absolute; left: 37%; top: 11%; width: auto; font-size: 14px; color: rgb(255, 47, 161); font-family: 'Roboto', sans-serif;"><b>Select Your Search Category</b></div>
-		<div contenteditable="true" style="position: absolute; left: 45%; top: 12.8%; width: auto; font-size: 12px; color: rgb(8, 121, 4); font-family: 'Roboto', sans-serif;">Search By NID / Voter No.</div>
-		<div contenteditable="true" style="position: absolute; left: 45%; top: 14.3%; width: auto; font-size: 12px; color: rgb(7, 119, 184); font-family: 'Roboto', sans-serif;">Search By Form No.</div>
-		<div contenteditable="true" style="position: absolute; left: 30%; top: 16.9%; width: auto; font-size: 12px; color: rgb(252, 0, 0); font-family: 'Roboto', sans-serif;"><b>NID or Voter No*</b></div>
-		<div contenteditable="true" style="position: absolute; left: 45%; top: 16.9%; width: auto; font-size: 12px; color: rgb(143, 143, 143); font-family: 'Roboto', sans-serif;">${nid}</div>
-		<div contenteditable="true" style="position: absolute; left: 62.9%; top: 17.1%; width: auto; font-size: 11px; color: rgb(255 255 255); font-family: 'Roboto', sans-serif;">Submit</div>
-		<div contenteditable="true" style="position: absolute; left: 89%; top: 11.55%; width: auto; font-size: 11px; color: #fff; font-family: 'Roboto', sans-serif;">Home</div>
-		
-		<div contenteditable="true" style="position: absolute; left: 37.5%; top: 27.2%; width: auto; font-size: 16px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"><b>জাতীয় পরিচিতি তথ্য</b></div>
-		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 30%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">জাতীয় পরিচয় পত্র নম্বর</div>
-		<div id="nid_no" contenteditable="true" style="position: absolute; left: 55%; top: 30%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'Roboto', sans-serif;">${nid}</div>
-		
-		<divasync function renderPDFLocalTemplate(apiData) {
-  try {
-    const nid = apiData.data?.nid || "";
-    const pin = apiData.data?.pin || "";
-    const oldNid = apiData.data?.oldNid || "-";
-    const upazilaCode = apiData.data?.upazilaCode || "-";
-    const voterArea = apiData.data?.voterArea || "";
-    const nameBn = apiData.data?.nameBn || "";
-    const nameEn = apiData.data?.nameEn || "";
-    const dob = apiData.data?.dob || "";
-    const father = apiData.data?.father || "";
-    const mother = apiData.data?.mother || "";
-    const bloodGroup = apiData.data?.bloodGroup || "-";
-    const age = apiData.data?.age || "";
-    const gender = apiData.data?.gender || "";
-    const birthDay = apiData.data?.birthDay || "";
-    const birthPlace = apiData.data?.birthPlace || "";
-    const presentAddr = apiData.data?.presentAddr || "";
-    const permAddr = apiData.data?.permAddr || "";
-    const photo = apiData.data?.photo || "";
-
-    // আপনার জেনারেট করা HTML টেমপ্লেট
+    // জেনারেট করা HTML টেমপ্লেট (সঠিক স্ট্রাকচার)
     const htmlStructure = `<!DOCTYPE html>
 <html>
 <head>
@@ -425,87 +372,87 @@ async function renderPDFLocalTemplate(apiData) {
 
 // ========== INCOMING MESSAGE HANDLER ==========
 async function handleIncoming(msgObj) {
-  const from = msgObj.from; //
-  const msgId = msgObj.id; //
-  const text = msgObj.text?.body?.trim(); //
+  const from = msgObj.from;
+  const msgId = msgObj.id;
+  const text = msgObj.text?.body?.trim();
 
-  if (!text) return; //
-  await markRead(msgId); //
+  if (!text) return;
+  await markRead(msgId);
 
-  if (text.toLowerCase() === "start" || text.toLowerCase() === "menu") { //
-    await sendText(from, "👋 আমাদের NID সার্ভিস বোটে আপনাকে স্বাগতম!\n\nকার্ড বের করতে নিচে দেওয়া ফরম্যাটে মেসেজ দিন:\n*NID_NUMBER DOB*\n\nउदाहरण:\n_6014203332 1996-01-20_"); //
-    return; //
+  if (text.toLowerCase() === "start" || text.toLowerCase() === "menu") {
+    await sendText(from, "👋 আমাদের NID সার্ভিস বোটে আপনাকে स्वागतম!\n\nকার্ড বের করতে নিচে দেওয়া ফরম্যাটে মেসেজ দিন:\n*NID_NUMBER DOB*\n\nউদাহরণ:\n_6014203332 1996-01-20_");
+    return;
   }
 
-  const parts = text.split(/\s+/); //
-  if (parts.length !== 2) { //
-    await sendText(from, "❌ ভুল ফরম্যাট! দয়া করে এভাবে দিন:\n*NID_NUMBER DOB*\n\nউদাহরণ:\n_6014203332 1996-01-20_"); //
-    return; //
+  const parts = text.split(/\s+/);
+  if (parts.length !== 2) {
+    await sendText(from, "❌ ভুল ফরম্যাট! দয়া করে এভাবে দিন:\n*NID_NUMBER DOB*\n\nউদাহরণ:\n_6014203332 1996-01-20_");
+    return;
   }
 
-  const [nid, dob] = parts; //
-  if (!/^\d{10}$|^\d{13}$|^\d{17}$/.test(nid) || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) { //
-    await sendText(from, "❌ ভুল NID অথবা জন্মতারিখ ফরম্যাট।\nNID ১০, ১৩ অথবা ১৭ ডিজিটের হতে হবে এবং DOB YYYY-MM-DD ফরম্যাটে হতে হবে।"); //
-    return; //
+  const [nid, dob] = parts;
+  if (!/^\d{10}$|^\d{13}$|^\d{17}$/.test(nid) || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    await sendText(from, "❌ ভুল NID অথবা জন্মতারিখ ফরম্যাট।\nNID ১০, ১৩ অথবা ১৭ ডিজিটের হতে হবে এবং DOB YYYY-MM-DD ফরম্যাটে হতে হবে।");
+    return;
   }
 
-  const allowed = await isAllowed(from); //
-  if (!allowed) { //
-    await sendText(from, "🚫 দুঃখিত, আপনি এই বটের অনুমোদিত ইউজার নন অথবা আপনার অ্যাকাউন্টটি নিষ্ক্রিয়। অ্যাডমিনের সাথে যোগাযোগ করুন।"); //
-    return; //
+  const allowed = await isAllowed(from);
+  if (!allowed) {
+    await sendText(from, "🚫 দুঃখিত, আপনি এই বটের অনুমোদিত ইউজার নন অথবা আপনার অ্যাকাউন্টটি নিষ্ক্রিয়। অ্যাডমিনের সাথে যোগাযোগ করুন।");
+    return;
   }
 
-  const balance = await getUserBalance(from); //
-  const price = await getCardPrice(); //
+  const balance = await getUserBalance(from);
+  const price = await getCardPrice();
 
-  if (balance < price) { //
-    await sendText(from, `⚠️ আপনার পর্যাপ্ত ব্যালেন্স নেই।\nপ্রয়োজন: ${price} ৳\nআপনার ব্যালেন্স: ${balance} ৳\n\nদয়া করে রিচার্জ করতে অ্যাডমিনের সাথে যোগাযোগ করুন।`); //
-    return; //
+  if (balance < price) {
+    await sendText(from, `⚠️ আপনার পর্যাপ্ত ব্যালেন্স নেই।\nপ্রয়োজন: ${price} ৳\nআপনাক ব্যালেন্স: ${balance} ৳\n\nদয়া করে রিচার্জ করতে অ্যাডমিনের সাথে যোগাযোগ করুন।`);
+    return;
   }
 
-  await sendText(from, "⏳ আপনার রিকোয়েস্টটি প্রসেস করা হচ্ছে। দয়া করে অপেক্ষা করুন..."); //
+  await sendText(from, "⏳ আপনার রিকোয়েস্টটি প্রসেস করা হচ্ছে। দয়া করে অপেক্ষা করুন...");
 
   try {
     const apiResult = await searchNIDDirect(nid, dob, from); 
 
-    if (!apiResult || apiResult.status === "error" || apiResult.success === false || !apiResult.data) { //
-      const msg = apiResult?.message || "এনআইডি সার্ভার থেকে কোনো ডাটা পাওয়া যায়নি।"; //
-      await logToHistory(from, nid, dob, "failed", 0, balance, `API Error: ${msg}`); //
-      await sendText(from, `❌ ${msg}`); //
-      return; //
+    if (!apiResult || apiResult.status === "error" || apiResult.success === false || !apiResult.data) {
+      const msg = apiResult?.message || "এনআইডি সার্ভার থেকে কোনো ডাটা পাওয়া যায়নি।";
+      await logToHistory(from, nid, dob, "failed", 0, balance, `API Error: ${msg}`);
+      await sendText(from, `❌ ${msg}`);
+      return;
     }
 
     // Base64 ইমপ্লিমেন্টেড লোকাল HTML টেমপ্লেট দিয়ে সরাসরি PDF রেন্ডার করা হচ্ছে 
     const pdfBuffer = await renderPDFLocalTemplate(apiResult); 
-    const filename = `${nid}_server_copy.pdf`; //
+    const filename = `${nid}_server_copy.pdf`;
 
-    const mediaId = await uploadMedia(pdfBuffer, filename, "application/pdf"); //
+    const mediaId = await uploadMedia(pdfBuffer, filename, "application/pdf");
 
-    const newBalance = balance - price; //
-    await usersColl.updateOne({ number: normalizeNumber(from) }, { $set: { balance: newBalance } }); //
-    await logToHistory(from, nid, dob, "success", price, newBalance, "সফলভাবে পিডিএফ পাঠানো হয়েছে।"); //
+    const newBalance = balance - price;
+    await usersColl.updateOne({ number: normalizeNumber(from) }, { $set: { balance: newBalance } });
+    await logToHistory(from, nid, dob, "success", price, newBalance, "সফলভাবে পিডিএফ পাঠানো হয়েছে।");
 
-    await sendDocument(from, mediaId, filename, `✅ সফলভাবে আপনার NID সার্ভার কপি তৈরি হয়েছে।\n\n💰 চার্জ কাটা হয়েছে: ${price} ৳\n📉 বর্তমান ব্যালেন্স: ${newBalance} ৳`); //
+    await sendDocument(from, mediaId, filename, `✅ সফলভাবে আপনার NID সার্ভার কপি তৈরি হয়েছে।\n\n💰 চার্জ কাটা হয়েছে: ${price} ৳\n📉 বর্তমান ব্যালেন্স: ${newBalance} ৳`);
 
   } catch (err) {
-    console.error("🔥 Global Handle Error:", err.message); //
-    await logToHistory(from, nid, dob, "failed", 0, balance, `Crash: ${err.message}`); //
-    await sendText(from, `❌ দুঃখিত, একটি অভ্যন্তরীণ কারিগরি ত্রুটি ঘটেছে। আবার চেষ্টা করুন বা অ্যাডমিনকে জানান। (${err.message})`); //
+    console.error("🔥 Global Handle Error:", err.message);
+    await logToHistory(from, nid, dob, "failed", 0, balance, `Crash: ${err.message}`);
+    await sendText(from, `❌ দুঃখিত, একটি অভ্যন্তরীণ কারিগরি ত্রুটি ঘটেছে। আবার চেষ্টা করুন বা অ্যাডমিনকে জানান। (${err.message})`);
   }
 }
 
 // ========== EXPRESS SERVER & WEB ADMIN ==========
-const app = express(); //
-app.use(express.json()); //
-app.use(express.urlencoded({ extended: true })); //
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-const adminSessions = new Set(); //
+const adminSessions = new Set();
 
 function adminAuth(req, res, next) {
-  const cookies = req.headers.cookie || ""; //
-  const sess = cookies.split(";").map(s => s.trim()).find(s => s.startsWith("admin_sess="))?.split("=")[1]; //
-  if (sess && adminSessions.has(sess)) return next(); //
-  res.redirect("/admin/login"); //
+  const cookies = req.headers.cookie || "";
+  const sess = cookies.split(";").map(s => s.trim()).find(s => s.startsWith("admin_sess="))?.split("=")[1];
+  if (sess && adminSessions.has(sess)) return next();
+  res.redirect("/admin/login");
 }
 
 // UI Styles
@@ -543,18 +490,18 @@ const adminNav = `<nav>
 
 // Webhooks
 app.get("/webhook", (req, res) => {
-  const mode = req.query["hub.mode"]; //
-  const token = req.query["hub.verify_token"]; //
-  const challenge = req.query["hub.challenge"]; //
-  if (mode && token === CONFIG.WA_VERIFY_TOKEN) return res.status(200).send(challenge); //
-  res.sendStatus(403); //
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  if (mode && token === CONFIG.WA_VERIFY_TOKEN) return res.status(200).send(challenge);
+  res.sendStatus(403);
 });
 
 app.post("/webhook", async (req, res) => {
-  res.sendStatus(200); //
-  const change = req.body?.entry?.[0]?.changes?.[0]?.value; //
-  const msg = change?.messages?.[0]; //
-  if (msg) await handleIncoming(msg); //
+  res.sendStatus(200);
+  const change = req.body?.entry?.[0]?.changes?.[0]?.value;
+  const msg = change?.messages?.[0];
+  if (msg) await handleIncoming(msg);
 });
 
 // Admin Authentication
@@ -567,26 +514,26 @@ app.get("/admin/login", (req, res) => {
         <button class="btn btn-blue" style="width:100%; padding:10px;">Login</button>
       </form>
     </div>
-  </body></html>`); //
+  </body></html>`);
 });
 
 app.post("/admin/login", (req, res) => {
-  if (req.body.password === CONFIG.ADMIN_PASS) { //
-    const token = crypto.randomBytes(16).toString("hex"); //
-    adminSessions.add(token); //
-    res.setHeader("Set-Cookie", `admin_sess=${token}; Path=/; HttpOnly`); //
-    res.redirect("/admin"); //
+  if (req.body.password === CONFIG.ADMIN_PASS) {
+    const token = crypto.randomBytes(16).toString("hex");
+    adminSessions.add(token);
+    res.setHeader("Set-Cookie", `admin_sess=${token}; Path=/; HttpOnly`);
+    res.redirect("/admin");
   } else {
-    res.send("<script>alert('ভুল পাসওয়ার্ড!'); window.location='/admin/login';</script>"); //
+    res.send("<script>alert('ভুল পাসওয়ার্ড!'); window.location='/admin/login';</script>");
   }
 });
 
 // Admin Dashboard
 app.get("/admin", adminAuth, async (req, res) => {
-  const totalUsers = await usersColl.countDocuments(); //
-  const totalHits = await historyColl.countDocuments(); //
-  const successHits = await historyColl.countDocuments({ status: "success" }); //
-  const failedHits = await historyColl.countDocuments({ status: "failed" }); //
+  const totalUsers = await usersColl.countDocuments();
+  const totalHits = await historyColl.countDocuments();
+  const successHits = await historyColl.countDocuments({ status: "success" });
+  const failedHits = await historyColl.countDocuments({ status: "failed" });
 
   res.send(`<html><head>${adminCSS}<title>Dashboard</title></head><body>
     <h1>📊 Admin Dashboard</h1>${adminNav}
@@ -596,13 +543,13 @@ app.get("/admin", adminAuth, async (req, res) => {
       <div class="card" style="flex:1; min-width:200px; text-align:center; color:green;"><h3>✅ সফল সার্চ</h3><h2>${successHits}</h2></div>
       <div class="card" style="flex:1; min-width:200px; text-align:center; color:red;"><h3>❌ ব্যর্থ সার্চ</h3><h2>${failedHits}</h2></div>
     </div>
-  </body></html>`); //
+  </body></html>`);
 });
 
 // Users Management
 app.get("/admin/users", adminAuth, async (req, res) => {
-  const users = await usersColl.find().toArray(); //
-  let rows = ""; //
+  const users = await usersColl.find().toArray();
+  let rows = "";
   users.forEach(u => {
     rows += `<tr>
       <td>${u.name || "—"}</td>
@@ -612,7 +559,7 @@ app.get("/admin/users", adminAuth, async (req, res) => {
       <td>
         <a class="btn btn-blue" href="/admin/edit-user?number=${u.number}">✏️ Edit / Recharge</a>
       </td>
-    </tr>`; //
+    </tr>`;
   });
 
   res.send(`<html><head>${adminCSS}<title>Manage Users</title></head><body>
@@ -623,7 +570,7 @@ app.get("/admin/users", adminAuth, async (req, res) => {
         ${rows || "<tr><td colspan='5'>কোনো ইউজার পাওয়া যায়নি।</td></tr>"}
       </table>
     </div>
-  </body></html>`); //
+  </body></html>`);
 });
 
 app.get("/admin/add-user", adminAuth, (req, res) => {
@@ -635,23 +582,23 @@ app.get("/admin/add-user", adminAuth, (req, res) => {
       <input type="number" name="balance" placeholder="ব্যালেন্স (৳)" value="0" required/>
       <button class="btn btn-blue" style="padding:10px;">Save User</button>
     </form></div>
-  </body></html>`); //
+  </body></html>`);
 });
 
 app.post("/admin/add-user", adminAuth, async (req, res) => {
-  const { name, number, balance } = req.body; //
-  const num = normalizeNumber(number); //
+  const { name, number, balance } = req.body;
+  const num = normalizeNumber(number);
   await usersColl.updateOne(
     { number: num },
     { $set: { name, number: num, balance: parseFloat(balance) || 0, active: true } },
     { upsert: true }
-  ); //
-  res.redirect("/admin/users"); //
+  );
+  res.redirect("/admin/users");
 });
 
 app.get("/admin/edit-user", adminAuth, async (req, res) => {
-  const user = await usersColl.findOne({ number: req.query.number }); //
-  if (!user) return res.send("User not found"); //
+  const user = await usersColl.findOne({ number: req.query.number });
+  if (!user) return res.send("User not found");
   res.send(`<html><head>${adminCSS}<title>Edit User</title></head><body>
     <h1>✏️ Edit User / Recharge</h1>${adminNav}
     <div class="card"><form method="POST" action="/admin/edit-user" style="max-width:400px; display:flex; flex-direction:column; gap:15px;">
@@ -666,25 +613,25 @@ app.get("/admin/edit-user", adminAuth, async (req, res) => {
       </select>
       <button class="btn btn-blue" style="padding:10px;">💾 Update Details</button>
     </form></div>
-  </body></html>`); //
+  </body></html>`);
 });
 
 app.post("/admin/edit-user", adminAuth, async (req, res) => {
-  const { oldNumber, name, number, balance, active } = req.body; //
-  const newNum = normalizeNumber(number); //
-  if (oldNumber !== newNum) await usersColl.deleteOne({ number: oldNumber }); //
+  const { oldNumber, name, number, balance, active } = req.body;
+  const newNum = normalizeNumber(number);
+  if (oldNumber !== newNum) await usersColl.deleteOne({ number: oldNumber });
   await usersColl.updateOne(
     { number: newNum },
     { $set: { name, number: newNum, balance: parseFloat(balance) || 0, active: active === "true" } },
     { upsert: true }
-  ); //
-  res.redirect("/admin/users"); //
+  );
+  res.redirect("/admin/users");
 });
 
 // Logs History
 app.get("/admin/history", adminAuth, async (req, res) => {
-  const history = await historyColl.find().sort({ timestamp: -1 }).limit(150).toArray(); //
-  let rows = ""; //
+  const history = await historyColl.find().sort({ timestamp: -1 }).limit(150).toArray();
+  let rows = "";
   history.forEach(h => {
     rows += `<tr>
       <td style="white-space:nowrap; font-size:12px">${h.timestamp ? new Date(h.timestamp).toLocaleString() : "—"}</td>
@@ -694,7 +641,7 @@ app.get("/admin/history", adminAuth, async (req, res) => {
       <td>${h.status === "success" ? "<span style='color:green;font-weight:bold'>Success</span>" : "<span style='color:red;font-weight:bold'>Failed</span>"}</td>
       <td>${h.charge || 0} ৳</td>
       <td style="font-size:12px; color:#555;">${h.remarks || "—"}</td>
-    </tr>`; //
+    </tr>`;
   });
 
   res.send(`<html><head>${adminCSS}<title>History</title></head><body>
@@ -705,7 +652,7 @@ app.get("/admin/history", adminAuth, async (req, res) => {
         ${rows || "<tr><td colspan='7'>এখনো কোনো হিস্ট্রি রেকর্ড তৈরি হয়নি।</td></tr>"}
       </table>
     </div>
-  </body></html>`); //
+  </body></html>`);
 });
 
 // Admin NID Raw Logs Interface
@@ -799,8 +746,8 @@ app.get("/admin/nidlogs", adminAuth, async (req, res) => {
 
 // Settings Management
 app.get("/admin/settings", adminAuth, async (req, res) => {
-  const settings = await settingsColl.findOne({ _id: "bot_settings" }); //
-  const msg = req.query.msg || ""; //
+  const settings = await settingsColl.findOne({ _id: "bot_settings" });
+  const msg = req.query.msg || "";
   res.send(`<html><head>${adminCSS}<title>Settings</title></head><body>
     <h1>⚙️ Settings</h1>${adminNav}
     ${msg ? `<div class="card alert alert-success">${msg}</div>` : ""}
@@ -810,24 +757,24 @@ app.get("/admin/settings", adminAuth, async (req, res) => {
       </table>
       <br><button class="btn btn-blue" style="padding:10px 30px">💾 Save</button>
     </form></div>
-  </body></html>`); //
+  </body></html>`);
 });
 
 app.post("/admin/settings", adminAuth, async (req, res) => {
-  await settingsColl.updateOne({ _id: "bot_settings" }, { $set: { cardPrice: parseFloat(req.body.cardPrice) || 0 } }, { upsert: true }); //
-  res.redirect("/admin/settings?msg=✅ Saved!"); //
+  await settingsColl.updateOne({ _id: "bot_settings" }, { $set: { cardPrice: parseFloat(req.body.cardPrice) || 0 } }, { upsert: true });
+  res.redirect("/admin/settings?msg=✅ Saved!");
 });
 
 app.get("/admin/logout", (req, res) => {
-  const sess = (req.headers.cookie || "").split(";").map(s => s.trim()).find(s => s.startsWith("admin_sess="))?.split("=")[1]; //
-  if (sess) adminSessions.delete(sess); //
-  res.setHeader("Set-Cookie", "admin_sess=; Max-Age=0; Path=/; HttpOnly"); //
-  res.redirect("/admin/login"); //
+  const sess = (req.headers.cookie || "").split(";").map(s => s.trim()).find(s => s.startsWith("admin_sess="))?.split("=")[1];
+  if (sess) adminSessions.delete(sess);
+  res.setHeader("Set-Cookie", "admin_sess=; Max-Age=0; Path=/; HttpOnly");
+  res.redirect("/admin/login");
 });
 
 // Start Server
 app.listen(CONFIG.PORT, async () => {
-  console.log(`🚀 Server listening on port ${CONFIG.PORT}`); //
-  await connectMongoDB(); //
-  await loginToPhpSite(); //
+  console.log(`🚀 Server listening on port ${CONFIG.PORT}`);
+  await connectMongoDB();
+  await loginToPhpSite();
 });
