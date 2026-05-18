@@ -264,8 +264,21 @@ async function handleIncoming(msg) {
 
     try {
       const searchResult = await searchNIDOnServer(nid, dob);
-      const result = typeof searchResult === "string" ? JSON.parse(searchResult) : searchResult;
-
+      let result;
+try {
+  result = typeof searchResult === "string" ? JSON.parse(searchResult) : searchResult;
+} catch (parseErr) {
+  // HTML response এসেছে — session expired, re-login করুন
+  console.log("⚠️ HTML response এসেছে, re-login করা হচ্ছে...");
+  await loginToPhpSite();
+  const retryResult = await searchNIDOnServer(nid, dob);
+  try {
+    result = typeof retryResult === "string" ? JSON.parse(retryResult) : retryResult;
+  } catch (e) {
+    await logToHistory(from, nid, dob, "failed", 0, currentBalance, "HTML Response after re-login");
+    return sendText(from, "❌ সার্ভার HTML response দিচ্ছে। PHP সাইট সমস্যায় আছে।");
+  }
+}
       if (result.status === "error" || result.status === "failed") {
         const errMsg = result.message || "তথ্য পাওয়া যায়নি বা সার্ভার ব্যালেন্স শেষ।";
         await logToHistory(from, nid, dob, "failed", 0, currentBalance, `Server Error: ${errMsg}`);
