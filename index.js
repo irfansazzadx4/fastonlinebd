@@ -269,6 +269,59 @@ async function renderPDFLocalTemplate(apiData) {
 		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 30%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">জাতীয় পরিচয় পত্র নম্বর</div>
 		<div id="nid_no" contenteditable="true" style="position: absolute; left: 55%; top: 30%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'Roboto', sans-serif;">${nid}</div>
 		
+		<divasync function renderPDFLocalTemplate(apiData) {
+  try {
+    const nid = apiData.data?.nid || "";
+    const pin = apiData.data?.pin || "";
+    const oldNid = apiData.data?.oldNid || "-";
+    const upazilaCode = apiData.data?.upazilaCode || "-";
+    const voterArea = apiData.data?.voterArea || "";
+    const nameBn = apiData.data?.nameBn || "";
+    const nameEn = apiData.data?.nameEn || "";
+    const dob = apiData.data?.dob || "";
+    const father = apiData.data?.father || "";
+    const mother = apiData.data?.mother || "";
+    const bloodGroup = apiData.data?.bloodGroup || "-";
+    const age = apiData.data?.age || "";
+    const gender = apiData.data?.gender || "";
+    const birthDay = apiData.data?.birthDay || "";
+    const birthPlace = apiData.data?.birthPlace || "";
+    const presentAddr = apiData.data?.presentAddr || "";
+    const permAddr = apiData.data?.permAddr || "";
+    const photo = apiData.data?.photo || "";
+
+    // আপনার জেনারেট করা HTML টেমপ্লেট
+    const htmlStructure = `<!DOCTYPE html>
+<html>
+<head>
+	<title>${nid} - ${nameEn}</title>
+	<meta name="viewport" content="initial-scale=1.0, width=device-width"/>
+	<meta charSet="utf-8"/>
+	<link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+	<link href="https://fonts.maateen.me/solaiman-lipi/font.css" rel="stylesheet">
+	<style>
+		body { margin: 0; padding: 0; background-color: #fff; display: flex; justify-content: center; align-items: center; }
+		@media print { html, body { height:100%; margin: 0 !important; padding: 0 !important; overflow: hidden; } }
+		[contenteditable]:focus { outline: none; border: none; }
+		.background { position: relative; width: 1241px; height: 1755px; background: url('${CONFIG.PHP_SITE_BASE_URL}/assets/images/QR_Unofficial.png') no-repeat; background-size: contain; margin: 0 auto; }
+	</style>
+</head>
+<body oncontextmenu="return false;" style="text-align: center;">
+	<div class="background">
+		
+		<div contenteditable="true" style="position: absolute; left: 30%; top: 8%; width: auto; font-size: 16px; color: rgb(255 224 0); font-family: 'Roboto', sans-serif;"><b>National Identity Registration Wing (NIDW)</b></div>
+		<div contenteditable="true" style="position: absolute; left: 37%; top: 11%; width: auto; font-size: 14px; color: rgb(255, 47, 161); font-family: 'Roboto', sans-serif;"><b>Select Your Search Category</b></div>
+		<div contenteditable="true" style="position: absolute; left: 45%; top: 12.8%; width: auto; font-size: 12px; color: rgb(8, 121, 4); font-family: 'Roboto', sans-serif;">Search By NID / Voter No.</div>
+		<div contenteditable="true" style="position: absolute; left: 45%; top: 14.3%; width: auto; font-size: 12px; color: rgb(7, 119, 184); font-family: 'Roboto', sans-serif;">Search By Form No.</div>
+		<div contenteditable="true" style="position: absolute; left: 30%; top: 16.9%; width: auto; font-size: 12px; color: rgb(252, 0, 0); font-family: 'Roboto', sans-serif;"><b>NID or Voter No*</b></div>
+		<div contenteditable="true" style="position: absolute; left: 45%; top: 16.9%; width: auto; font-size: 12px; color: rgb(143, 143, 143); font-family: 'Roboto', sans-serif;">${nid}</div>
+		<div contenteditable="true" style="position: absolute; left: 62.9%; top: 17.1%; width: auto; font-size: 11px; color: rgb(255 255 255); font-family: 'Roboto', sans-serif;">Submit</div>
+		<div contenteditable="true" style="position: absolute; left: 89%; top: 11.55%; width: auto; font-size: 11px; color: #fff; font-family: 'Roboto', sans-serif;">Home</div>
+		
+		<div contenteditable="true" style="position: absolute; left: 37.5%; top: 27.2%; width: auto; font-size: 16px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;"><b>জাতীয় পরিচিতি তথ্য</b></div>
+		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 30%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">জাতীয় পরিচয় পত্র নম্বর</div>
+		<div id="nid_no" contenteditable="true" style="position: absolute; left: 55%; top: 30%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'Roboto', sans-serif;">${nid}</div>
+		
 		<div contenteditable="true" style="position: absolute; left: 37.3%; top: 32.8%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'SolaimanLipi', sans-serif;">পিন নম্বর</div>
 		<div id="pin_no" contenteditable="true" style="position: absolute; left: 55%; top: 32.8%; width: auto; font-size: 14px; color: rgb(7, 7, 7); font-family: 'Roboto', sans-serif;">${pin}</div>
 		
@@ -337,34 +390,36 @@ async function renderPDFLocalTemplate(apiData) {
 </body>
 </html>`;
 
-    // ১. আপনার চাহিদা অনুযায়ী পুরো HTML কে Base64 এ কনভার্ট করা হলো
-    const base64Html = Buffer.from(html).toString("base64");
-
-    // ২. Puppeteer এপিআই-তে রিকোয়েস্ট পাঠানো
+    // রেলওয়ে Puppeteer এপিআই-তে রিকোয়েস্ট পাঠানো (নতুন ডাটা ফরম্যাট অনুযায়ী)
     const response = await axios.post(
       CONFIG.EXTERNAL_PUPPETEER_URL,
       { 
-        base64: base64Html, // Base64 স্ট্রিং পাঠানো হচ্ছে
-        options: { 
-          width: "1241px",    // অরিজিনাল টেমপ্লেটের উইডথ
-          height: "1755px",   // অরিজিনাল টেমপ্লেটের হাইট
-          printBackground: true 
-        } 
+        secret: CONFIG.PUPPETEER_SECRET, // বডিতে সিক্রেট পাঠানো হলো
+        html: htmlStructure             // Base64 এর বদলে সরাসরি র HTML পাঠানো হলো
       },
       { 
-        responseType: "arraybuffer", 
-        timeout: 60000,
+        responseType: "json",           // json রেসপন্স রিসিভ করা হবে
+        timeout: 95000,
         headers: {
           "Content-Type": "application/json",
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
       }
     );
-    return Buffer.from(response.data);
+
+    // রেলওয়ের রেসপন্স থেকে Base64 PDF টিকে রিলিজ করে Buffer-এ কনভার্ট করা
+    if (response.data && response.data.success && response.data.pdf) {
+      return Buffer.from(response.data.pdf, "base64");
+    } else {
+      throw new Error(response.data?.error || "Puppeteer থেকে কোনো পিডিএফ ডাটা পাওয়া যায়নি।");
+    }
 
   } catch (error) {
     console.error("❌ PDF Render Error:", error.message);
-    throw new Error(`PDF তৈরি করা যাচ্ছে না। (Status: ${error.response?.status || 'Unknown'})`);
+    if (error.response?.data) {
+      console.error("❌ API Error Response Data:", error.response.data);
+    }
+    throw new Error(`PDF তৈরি করা যাচ্ছে না। (Status: ${error.response?.status || 'Error'})`);
   }
 }
 
